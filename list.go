@@ -30,7 +30,7 @@ var listCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&projectFlag, "project", "p", "", "Run project directly from INI file")
 	rootCmd.PersistentFlags().BoolVarP(&projectEphemeralFlag, "ephemeral", "e", false, "Execute project in ephemeral mode (default is permanent)")
-	
+
 	rootCmd.AddCommand(listCmd)
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {
 		runList()
@@ -350,411 +350,398 @@ func runList() {
 		}
 	} else {
 
-	app := tview.NewApplication().EnableMouse(true)
-	pages := tview.NewPages()
+		app := tview.NewApplication().EnableMouse(true)
+		pages := tview.NewPages()
 
-	table := tview.NewTable().
-		SetBorders(false).
-		SetSelectable(true, false).
-		SetFixed(1, 0)
+		table := tview.NewTable().
+			SetBorders(false).
+			SetSelectable(true, false).
+			SetFixed(1, 0)
 
-	table.SetSelectedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
-	table.SetBorder(true).SetTitle(" 📦 Distrobox Instances ").SetTitleColor(tcell.ColorForestGreen)
+		table.SetSelectedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
+		table.SetBorder(true).SetTitle(" 📦 Distrobox Instances ").SetTitleColor(tcell.ColorForestGreen)
 
-	detailsBox := tview.NewTextView().
-		SetDynamicColors(true).
-		SetRegions(true).
-		SetWrap(true).
-		SetWordWrap(true)
-	detailsBox.SetBorder(true).SetTitle(" 🔍 Details ").SetTitleColor(tcell.ColorForestGreen)
-	commandsBox := tview.NewTextView().
-		SetDynamicColors(true).
-		SetRegions(true).
-		SetWrap(true).
-		SetWordWrap(true)
-	commandsBox.SetBorder(true).SetTitle(" ⌨️  Commands ").SetTitleColor(tcell.ColorForestGreen)
-	commandsBox.SetText("[green]↑/↓/j/k:[white] Navigate\n[green]Enter:[white] Select/Enter\n[green]Space:[white] Start/Stop\n[green]d:[white] Delete\n[green]u/r/p:[white] Switch Tabs\n[green]←/→ or h/l:[white] Prev/Next Tab\n[green]q/ESC:[white] Quit")
+		detailsBox := tview.NewTextView().
+			SetDynamicColors(true).
+			SetRegions(true).
+			SetWrap(true).
+			SetWordWrap(true)
+		detailsBox.SetBorder(true).SetTitle(" 🔍 Details ").SetTitleColor(tcell.ColorForestGreen)
+		commandsBox := tview.NewTextView().
+			SetDynamicColors(true).
+			SetRegions(true).
+			SetWrap(true).
+			SetWordWrap(true)
+		commandsBox.SetBorder(true).SetTitle(" ⌨️  Commands ").SetTitleColor(tcell.ColorForestGreen)
+		commandsBox.SetText("[green]↑/↓/j/k:[white] Navigate\n[green]Enter:[white] Select/Enter\n[green]Space:[white] Start/Stop\n[green]d:[white] Delete\n[green]u/r/p:[white] Switch Tabs\n[green]←/→ or h/l:[white] Prev/Next Tab\n[green]q/ESC:[white] Quit")
 
-	rightFlex := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(detailsBox, 0, 3, false).
-		AddItem(commandsBox, 11, 1, false)
+		rightFlex := tview.NewFlex().
+			SetDirection(tview.FlexRow).
+			AddItem(detailsBox, 0, 3, false).
+			AddItem(commandsBox, 11, 1, false)
 
+		tabs := tview.NewTextView().
+			SetDynamicColors(true).
+			SetRegions(true).
+			SetWrap(false).
+			SetTextAlign(tview.AlignCenter)
 
-	tabUser := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter)
-	tabRoot := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter)
-	tabProj := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter)
-
-	tabs := tview.NewFlex().
-		AddItem(tview.NewBox(), 0, 1, false).
-		AddItem(tabUser, 24, 1, false).
-		AddItem(tabRoot, 24, 1, false).
-		AddItem(tabProj, 18, 1, false).
-		AddItem(tview.NewBox(), 0, 1, false)
-
-	currentTab := "user"
-	var currentInstances []Instance
-	
-	var switchTab func(string) // forward declaration
-
-	tabUser.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
-		if action == tview.MouseLeftClick {
-			switchTab("user")
-			return action, nil
-		}
-		return action, event
-	})
-	tabRoot.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
-		if action == tview.MouseLeftClick {
-			switchTab("root")
-			return action, nil
-		}
-		return action, event
-	})
-	tabProj.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
-		if action == tview.MouseLeftClick {
-			switchTab("projects")
-			return action, nil
-		}
-		return action, event
-	})
-
-	updateDetails := func(row int) {
-		detailsBox.Clear()
-		if currentTab == "projects" {
-			if row < 1 || row > len(projectFiles) {
-				return
-			}
-			proj := projectFiles[row-1]
-			detailsBox.SetText(fmt.Sprintf("[green::b]📄 %s[-::-]\n\n[white]%s", proj.Name, proj.Content))
-		} else {
-			if row < 1 || row > len(currentInstances) {
-				return
-			}
-			inst := currentInstances[row-1]
-			detailsBox.SetText(getDetailText(inst))
-		}
-	}
-
-	drawTable := func() {
-		table.Clear()
-		if currentTab == "projects" {
-			table.SetTitle(" 📂 Project Files (*.ini) ")
-			table.SetCell(0, 0, tview.NewTableCell("File Name").SetExpansion(1).SetTextColor(tcell.ColorGreen).SetSelectable(false).SetAlign(tview.AlignLeft))
-			if len(projectFiles) == 0 {
-				table.SetCell(1, 0, tview.NewTableCell("No .ini files found in current path.").SetTextColor(tcell.ColorGray).SetSelectable(false))
-				detailsBox.SetText("")
-				return
-			}
-			for row, proj := range projectFiles {
-				table.SetCell(row+1, 0, tview.NewTableCell(proj.Name).SetTextColor(tcell.ColorYellow).SetExpansion(1))
-			}
-		} else {
-			table.SetTitle(" 📦 Distrobox Instances ")
-			headers := []string{"ID", "Name", "Project", "Status", "Exports"}
-			for col, header := range headers {
-				table.SetCell(0, col, tview.NewTableCell(header).SetExpansion(1).SetTextColor(tcell.ColorGreen).SetSelectable(false).SetAlign(tview.AlignLeft))
-			}
-			if len(currentInstances) == 0 {
-				table.SetCell(1, 0, tview.NewTableCell("No instances found.").SetTextColor(tcell.ColorGray).SetSelectable(false))
-				detailsBox.SetText("")
-				return
-			}
-			for row, inst := range currentInstances {
-				table.SetCell(row+1, 0, tview.NewTableCell(inst.ID).SetTextColor(tcell.ColorWhite).SetExpansion(1))
-				table.SetCell(row+1, 1, tview.NewTableCell(inst.Name).SetTextColor(tcell.ColorYellow).SetExpansion(1))
-				table.SetCell(row+1, 2, tview.NewTableCell(inst.IsProject).SetTextColor(tcell.ColorWhite).SetExpansion(1))
-				table.SetCell(row+1, 3, tview.NewTableCell(inst.StatusEmoji).SetTextColor(tcell.ColorLightBlue).SetExpansion(1))
-				table.SetCell(row+1, 4, tview.NewTableCell(inst.Exports).SetTextColor(tcell.ColorWhite).SetExpansion(1))
-			}
-		}
-		table.Select(1, 0)
-		updateDetails(1)
-	}
-
-	drawTabs := func() {
-		userStyle := "[gray:black]"
-		rootStyle := "[gray:black]"
-		projStyle := "[gray:black]"
-
-		if currentTab == "user" {
-			userStyle = "[black:#30ba78]"
-		} else if currentTab == "root" {
-			rootStyle = "[white:#8b0000]"
-		} else if currentTab == "projects" {
-			projStyle = "[black:#008b8b]"
-		}
-		
-		tabUser.SetText(fmt.Sprintf(`%s  User Instances (u)  [-:-]`, userStyle))
-		tabRoot.SetText(fmt.Sprintf(`%s  Root Instances (r)  [-:-]`, rootStyle))
-		tabProj.SetText(fmt.Sprintf(`%s  Projects (p)  [-:-]`, projStyle))
-	}
-
-	switchTab = func(tab string) {
-		currentTab = tab
-		if tab == "user" {
-			currentInstances = userInstances
-		} else if tab == "root" {
-			currentInstances = rootInstances
-		}
-		drawTabs()
-		drawTable()
-	}
-	refreshInstances := func() {
-		projectFiles = loadProjects()
-		projectNames := make(map[string]bool)
-		for _, proj := range projectFiles {
-			_, name := parseIniFile(proj.Path)
-			if name != "" {
-				projectNames[name] = true
-			}
-		}
-		out, _ := exec.Command("distrobox", "list", "--no-color").Output()
-		userInstances = parseDistroboxList(string(out), "User", projectNames)
-		outRoot, _ := exec.Command("distrobox", "list", "--root", "--no-color").Output()
-		rootInstances = parseDistroboxList(string(outRoot), "Root", projectNames)
-		switchTab(currentTab)
-	}
-
-	switchTab("user")
-
-	table.SetSelectionChangedFunc(func(row, column int) {
-		if row < 1 {
-			table.Select(1, 0)
-			return
-		}
-		updateDetails(row)
-	})
-
-
-	modal := tview.NewModal().
-		SetText("Create Instance from INI").
-		AddButtons([]string{"Permanent", "Ephemeral", "Cancel"}).
-		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-			if buttonLabel == "Permanent" {
-				selectedAction = "permanent"
-				app.Stop()
-			} else if buttonLabel == "Ephemeral" {
-				selectedAction = "ephemeral"
-				app.Stop()
-			} else {
-				pages.HidePage("modal")
-				app.SetFocus(table)
+		var switchTab func(string)
+		tabs.SetHighlightedFunc(func(added, removed, remaining []string) {
+			if len(added) > 0 {
+				switchTab(added[0])
+				tabs.Highlight("")
 			}
 		})
 
-	handleTableSelect := func(row, column int) {
-		if currentTab == "projects" {
-			if row < 1 || row > len(projectFiles) {
-				return
-			}
-			selectedProject = &projectFiles[row-1]
-			pages.ShowPage("modal")
-			app.SetFocus(modal)
-		} else {
-			if row < 1 || row > len(currentInstances) {
-				return
-			}
-			selectedInstance = &currentInstances[row-1]
-			selectedAction = "enter"
-			app.Stop()
-		}
-	}
+		currentTab := "user"
+		var currentInstances []Instance
 
-	table.SetSelectedFunc(handleTableSelect)
-
-	table.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
-		if action == tview.MouseLeftDoubleClick {
-			row, col := table.GetSelection()
-			// Only trigger if we are clicking on the selected row (tview handles selection on single click before double click)
-			// Wait, the double click event has X and Y. Let's check where the click actually happened!
-			// Actually, tview natively updates the selection on the first click.
-			// To be safer, we just trigger enter for the currently selected row.
-			handleTableSelect(row, col)
-			return action, nil
-		}
-		return action, event
-	})
-
-	contentFlex := tview.NewFlex().
-		AddItem(table, 0, 2, true).
-		AddItem(rightFlex, 0, 1, false)
-
-	dbV, rtV := getVersions()
-
-	statusCenter := tview.NewTextView().SetDynamicColors(true).SetRegions(false).SetWrap(false).SetTextAlign(tview.AlignLeft)
-	statusCenter.SetText(fmt.Sprintf(" [white:#004b23] 📦 %s | 🐳 %s [-:-] ", dbV, rtV))
-
-	statusRight := tview.NewTextView().SetDynamicColors(true).SetRegions(false).SetWrap(false).SetTextAlign(tview.AlignRight)
-	statusRight.SetText(" [white:#004b23] ⚡ CPU: --.-% | 🧠 RAM: ---MB | 🎮 GPU: --% [-:-] ")
-
-	startResourceMonitor(app, statusRight)
-
-	statusBar := tview.NewFlex().
-		AddItem(statusCenter, 0, 1, false).
-		AddItem(tview.NewBox(), 0, 1, false).
-		AddItem(statusRight, 0, 1, false)
-
-	mainFlex := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(tabs, 1, 0, false).
-		AddItem(contentFlex, 0, 1, true).
-		AddItem(statusBar, 1, 0, false)
-
-	pages.AddPage("main", mainFlex, true, true)
-	pages.AddPage("modal", modal, false, false)
-
-	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Rune() == ' ' {
-			if currentTab == "user" || currentTab == "root" {
-				row, _ := table.GetSelection()
-				if row >= 1 && row <= len(currentInstances) {
-					inst := currentInstances[row-1]
-					go func() {
-						if inst.StatusEmoji == "🟢" {
-							args := []string{"stop", "--yes", inst.Name}
-							if inst.Type == "Root" {
-								args = append([]string{"--root"}, args...)
-							}
-							exec.Command("distrobox", args...).Run()
-						} else {
-							args := []string{"enter", "-T", "-n", inst.Name, "--", "true"}
-							if inst.Type == "Root" {
-								args = append([]string{"--root"}, args...)
-							}
-							exec.Command("distrobox", args...).Run()
-						}
-						app.QueueUpdateDraw(func() {
-							refreshInstances()
-						})
-					}()
-				}
-			}
-			return nil
-		}
-
-		if event.Rune() == 'd' {
-			if currentTab == "user" || currentTab == "root" {
-				row, _ := table.GetSelection()
-				if row >= 1 && row <= len(currentInstances) {
-					inst := currentInstances[row-1]
-					
-					deleteModal := tview.NewModal().
-						SetText(fmt.Sprintf("Are you sure you want to delete '%s'?", inst.Name)).
-						AddButtons([]string{"Delete", "Cancel"}).
-						SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-							pages.RemovePage("deleteModal")
-							if buttonLabel == "Delete" {
-								waitModal := tview.NewModal().
-									SetText(fmt.Sprintf("Deleting '%s', please wait...", inst.Name))
-								pages.AddPage("waitModal", waitModal, false, false)
-								pages.ShowPage("waitModal")
-								app.SetFocus(waitModal)
-
-								go func() {
-									args := []string{"rm", "-f", inst.Name}
-									if inst.Type == "Root" {
-										args = append([]string{"--root"}, args...)
-									}
-									exec.Command("distrobox", args...).Run()
-
-									app.QueueUpdateDraw(func() {
-										pages.RemovePage("waitModal")
-										refreshInstances()
-										app.SetFocus(table)
-									})
-								}()
-							} else {
-								app.SetFocus(table)
-							}
-						})
-					pages.AddPage("deleteModal", deleteModal, false, false)
-					pages.ShowPage("deleteModal")
-					app.SetFocus(deleteModal)
-				}
-			}
-			return nil
-		}
-
-		if pages.HasPage("modal") {
-			name, _ := pages.GetFrontPage()
-			if name == "modal" {
-				return event
-			}
-		}
-
-		if (currentTab == "user" || currentTab == "root") && len(currentInstances) == 0 {
-			if event.Key() == tcell.KeyUp || event.Key() == tcell.KeyDown || event.Key() == tcell.KeyPgUp || event.Key() == tcell.KeyPgDn || event.Rune() == 'j' || event.Rune() == 'k' {
-				return nil
-			}
-		} else if currentTab == "projects" && len(projectFiles) == 0 {
-			if event.Key() == tcell.KeyUp || event.Key() == tcell.KeyDown || event.Key() == tcell.KeyPgUp || event.Key() == tcell.KeyPgDn || event.Rune() == 'j' || event.Rune() == 'k' {
-				return nil
-			}
-		} else {
-			limit := len(currentInstances)
+		updateDetails := func(row int) {
+			detailsBox.Clear()
 			if currentTab == "projects" {
-				limit = len(projectFiles)
-			}
-			if event.Key() == tcell.KeyUp || event.Rune() == 'k' {
-				row, _ := table.GetSelection()
-				if row == 1 {
-					table.Select(limit, 0)
-					return nil
+				if row < 1 || row > len(projectFiles) {
+					return
 				}
-			}
-			if event.Key() == tcell.KeyDown || event.Rune() == 'j' {
-				row, _ := table.GetSelection()
-				if row == limit {
-					table.Select(1, 0)
-					return nil
+				proj := projectFiles[row-1]
+				detailsBox.SetText(fmt.Sprintf("[green::b]📄 %s[-::-]\n\n[white]%s", proj.Name, proj.Content))
+			} else {
+				if row < 1 || row > len(currentInstances) {
+					return
 				}
+				inst := currentInstances[row-1]
+				detailsBox.SetText(getDetailText(inst))
 			}
 		}
 
-		if event.Key() == tcell.KeyEscape || event.Rune() == 'q' {
-			app.Stop()
-			return nil
-		}
-		if event.Rune() == 'u' {
-			switchTab("user")
-			return nil
-		}
-		if event.Rune() == 'r' {
-			switchTab("root")
-			return nil
-		}
-		if event.Rune() == 'p' {
-			switchTab("projects")
-			return nil
-		}
-		if event.Key() == tcell.KeyLeft || event.Rune() == 'h' {
-			if currentTab == "root" {
-				switchTab("user")
-			} else if currentTab == "projects" {
-				switchTab("root")
+		drawTable := func() {
+			table.Clear()
+			if currentTab == "projects" {
+				table.SetTitle(" 📂 Project Files (*.ini) ")
+				table.SetCell(0, 0, tview.NewTableCell("File Name").SetExpansion(1).SetTextColor(tcell.ColorGreen).SetSelectable(false).SetAlign(tview.AlignLeft))
+				if len(projectFiles) == 0 {
+					table.SetCell(1, 0, tview.NewTableCell("No .ini files found in current path.").SetTextColor(tcell.ColorGray).SetSelectable(false))
+					detailsBox.SetText("")
+					return
+				}
+				for row, proj := range projectFiles {
+					table.SetCell(row+1, 0, tview.NewTableCell(proj.Name).SetTextColor(tcell.ColorYellow).SetExpansion(1))
+				}
 			} else {
-				switchTab("projects")
+				table.SetTitle(" 📦 Distrobox Instances ")
+				headers := []string{"ID", "Name", "Project", "Status", "Exports"}
+				for col, header := range headers {
+					table.SetCell(0, col, tview.NewTableCell(header).SetExpansion(1).SetTextColor(tcell.ColorGreen).SetSelectable(false).SetAlign(tview.AlignLeft))
+				}
+				if len(currentInstances) == 0 {
+					table.SetCell(1, 0, tview.NewTableCell("No instances found.").SetTextColor(tcell.ColorGray).SetSelectable(false))
+					detailsBox.SetText("")
+					return
+				}
+				for row, inst := range currentInstances {
+					table.SetCell(row+1, 0, tview.NewTableCell(inst.ID).SetTextColor(tcell.ColorWhite).SetExpansion(1))
+					table.SetCell(row+1, 1, tview.NewTableCell(inst.Name).SetTextColor(tcell.ColorYellow).SetExpansion(1))
+					table.SetCell(row+1, 2, tview.NewTableCell(inst.IsProject).SetTextColor(tcell.ColorWhite).SetExpansion(1))
+					table.SetCell(row+1, 3, tview.NewTableCell(inst.StatusEmoji).SetTextColor(tcell.ColorLightBlue).SetExpansion(1))
+					table.SetCell(row+1, 4, tview.NewTableCell(inst.Exports).SetTextColor(tcell.ColorWhite).SetExpansion(1))
+				}
 			}
-			return nil
+			table.Select(1, 0)
+			updateDetails(1)
 		}
-		if event.Key() == tcell.KeyRight || event.Rune() == 'l' {
+
+		drawTabs := func() {
+			userStyle := "[gray:black]"
+			rootStyle := "[gray:black]"
+			projStyle := "[gray:black]"
+
 			if currentTab == "user" {
-				switchTab("root")
+				userStyle = "[black:#30ba78]"
 			} else if currentTab == "root" {
-				switchTab("projects")
-			} else {
-				switchTab("user")
+				rootStyle = "[white:#8b0000]"
+			} else if currentTab == "projects" {
+				projStyle = "[black:#008b8b]" // Dark cyan for projects
 			}
-			return nil
+			tabs.SetText(fmt.Sprintf(`["user"]%s  User Instances (u)  [-:-][""]    ["root"]%s  Root Instances (r)  [-:-][""]    ["projects"]%s  Projects (p)  [-:-][""]`, userStyle, rootStyle, projStyle))
 		}
-		return event
-	})
 
-	if err := app.SetRoot(pages, true).SetFocus(table).Run(); err != nil {
-		fmt.Printf("Error starting app: %s\n", err)
-		return
-	}
+		switchTab = func(tab string) {
+			currentTab = tab
+			if tab == "user" {
+				currentInstances = userInstances
+			} else if tab == "root" {
+				currentInstances = rootInstances
+			}
+			drawTabs()
+			drawTable()
+		}
+		refreshInstances := func() {
+			projectFiles = loadProjects()
+			projectNames := make(map[string]bool)
+			for _, proj := range projectFiles {
+				_, name := parseIniFile(proj.Path)
+				if name != "" {
+					projectNames[name] = true
+				}
+			}
+			out, _ := exec.Command("distrobox", "list", "--no-color").Output()
+			userInstances = parseDistroboxList(string(out), "User", projectNames)
+			outRoot, _ := exec.Command("distrobox", "list", "--root", "--no-color").Output()
+			rootInstances = parseDistroboxList(string(outRoot), "Root", projectNames)
+			switchTab(currentTab)
+		}
+
+		switchTab("user")
+
+		table.SetSelectionChangedFunc(func(row, column int) {
+			if row < 1 {
+				table.Select(1, 0)
+				return
+			}
+			updateDetails(row)
+		})
+
+		modal := tview.NewModal().
+			SetText("Create Instance from INI").
+			AddButtons([]string{"Permanent", "Ephemeral", "Cancel"}).
+			SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+				if buttonLabel == "Permanent" {
+					selectedAction = "permanent"
+					app.Stop()
+				} else if buttonLabel == "Ephemeral" {
+					selectedAction = "ephemeral"
+					app.Stop()
+				} else {
+					pages.HidePage("modal")
+					app.SetFocus(table)
+				}
+			})
+
+		handleTableSelect := func(row, column int) {
+			if currentTab == "projects" {
+				if row < 1 || row > len(projectFiles) {
+					return
+				}
+				selectedProject = &projectFiles[row-1]
+				pages.ShowPage("modal")
+				app.SetFocus(modal)
+			} else {
+				if row < 1 || row > len(currentInstances) {
+					return
+				}
+				selectedInstance = &currentInstances[row-1]
+				selectedAction = "enter"
+				app.Stop()
+			}
+		}
+
+		table.SetSelectedFunc(handleTableSelect)
+
+		table.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+			if action == tview.MouseLeftDoubleClick {
+				row, col := table.GetSelection()
+				handleTableSelect(row, col)
+				return action, nil
+			}
+			return action, event
+		})
+
+		contentFlex := tview.NewFlex().
+			AddItem(table, 0, 2, true).
+			AddItem(rightFlex, 0, 1, false)
+
+		dbV, rtV := getVersions()
+
+		statusCenter := tview.NewTextView().SetDynamicColors(true).SetRegions(false).SetWrap(false).SetTextAlign(tview.AlignLeft)
+		statusCenter.SetText(fmt.Sprintf(" [white:#004b23] 📦 %s | 🐳 %s [-:-] ", dbV, rtV))
+
+		statusRight := tview.NewTextView().SetDynamicColors(true).SetRegions(false).SetWrap(false).SetTextAlign(tview.AlignRight)
+		statusRight.SetText(" [white:#004b23] ⚡ CPU: --.-% | 🧠 RAM: ---MB | 🎮 GPU: --% [-:-] ")
+
+		startResourceMonitor(app, statusRight)
+
+		statusBar := tview.NewFlex().
+			AddItem(statusCenter, 0, 1, false).
+			AddItem(tview.NewBox(), 0, 1, false).
+			AddItem(statusRight, 0, 1, false)
+
+		mainFlex := tview.NewFlex().
+			SetDirection(tview.FlexRow).
+			AddItem(tabs, 1, 0, false).
+			AddItem(contentFlex, 0, 1, true).
+			AddItem(statusBar, 1, 0, false)
+
+		pages.AddPage("main", mainFlex, true, true)
+		pages.AddPage("modal", modal, false, false)
+
+		app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+			if event.Rune() == ' ' {
+				if currentTab == "user" || currentTab == "root" {
+					row, _ := table.GetSelection()
+					if row >= 1 && row <= len(currentInstances) {
+						inst := currentInstances[row-1]
+						go func() {
+							if inst.StatusEmoji == "🟢" {
+								args := []string{"stop", "--yes", inst.Name}
+								if inst.Type == "Root" {
+									args = append([]string{"--root"}, args...)
+								}
+								exec.Command("distrobox", args...).Run()
+							} else {
+								args := []string{"enter", "-T", "-n", inst.Name, "--", "true"}
+								if inst.Type == "Root" {
+									args = append([]string{"--root"}, args...)
+								}
+								exec.Command("distrobox", args...).Run()
+							}
+							app.QueueUpdateDraw(func() {
+								refreshInstances()
+							})
+						}()
+					}
+				}
+				return nil
+			}
+
+			if event.Rune() == 'd' {
+				if currentTab == "user" || currentTab == "root" {
+					row, _ := table.GetSelection()
+					if row >= 1 && row <= len(currentInstances) {
+						inst := currentInstances[row-1]
+
+						deleteModal := tview.NewModal().
+							SetText(fmt.Sprintf("Are you sure you want to delete '%s'?", inst.Name)).
+							AddButtons([]string{"Delete", "Cancel"}).
+							SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+								pages.RemovePage("deleteModal")
+								if buttonLabel == "Delete" {
+									waitModal := tview.NewModal().
+										SetText(fmt.Sprintf("Deleting '%s', please wait...", inst.Name))
+									pages.AddPage("waitModal", waitModal, false, false)
+									pages.ShowPage("waitModal")
+									app.SetFocus(waitModal)
+
+									go func() {
+										args := []string{"rm", "-f", inst.Name}
+										if inst.Type == "Root" {
+											args = append([]string{"--root"}, args...)
+										}
+										exec.Command("distrobox", args...).Run()
+
+										app.QueueUpdateDraw(func() {
+											pages.RemovePage("waitModal")
+											refreshInstances()
+											app.SetFocus(table)
+										})
+									}()
+								} else {
+									app.SetFocus(table)
+								}
+							})
+						pages.AddPage("deleteModal", deleteModal, false, false)
+						pages.ShowPage("deleteModal")
+						app.SetFocus(deleteModal)
+					}
+				}
+				return nil
+			}
+
+			if pages.HasPage("modal") {
+				name, _ := pages.GetFrontPage()
+				if name == "modal" {
+					return event
+				}
+			}
+
+			if (currentTab == "user" || currentTab == "root") && len(currentInstances) == 0 {
+				if event.Key() == tcell.KeyUp || event.Key() == tcell.KeyDown || event.Key() == tcell.KeyPgUp || event.Key() == tcell.KeyPgDn || event.Rune() == 'j' || event.Rune() == 'k' {
+					return nil
+				}
+			} else if currentTab == "projects" && len(projectFiles) == 0 {
+				if event.Key() == tcell.KeyUp || event.Key() == tcell.KeyDown || event.Key() == tcell.KeyPgUp || event.Key() == tcell.KeyPgDn || event.Rune() == 'j' || event.Rune() == 'k' {
+					return nil
+				}
+			} else {
+				limit := len(currentInstances)
+				if currentTab == "projects" {
+					limit = len(projectFiles)
+				}
+				if event.Key() == tcell.KeyUp || event.Rune() == 'k' {
+					row, _ := table.GetSelection()
+					if row == 1 {
+						table.Select(limit, 0)
+						return nil
+					}
+				}
+				if event.Key() == tcell.KeyDown || event.Rune() == 'j' {
+					row, _ := table.GetSelection()
+					if row == limit {
+						table.Select(1, 0)
+						return nil
+					}
+				}
+			}
+
+			if event.Key() == tcell.KeyEscape || event.Rune() == 'q' {
+				app.Stop()
+				return nil
+			}
+			if event.Rune() == 'u' {
+				switchTab("user")
+				return nil
+			}
+			if event.Rune() == 'r' {
+				switchTab("root")
+				return nil
+			}
+			if event.Rune() == 'p' {
+				switchTab("projects")
+				return nil
+			}
+			if event.Key() == tcell.KeyLeft || event.Rune() == 'h' {
+				if currentTab == "root" {
+					switchTab("user")
+				} else if currentTab == "projects" {
+					switchTab("root")
+				} else {
+					switchTab("projects")
+				}
+				return nil
+			}
+			if event.Key() == tcell.KeyRight || event.Rune() == 'l' {
+				if currentTab == "user" {
+					switchTab("root")
+				} else if currentTab == "root" {
+					switchTab("projects")
+				} else {
+					switchTab("user")
+				}
+				return nil
+			}
+			return event
+		})
+
+		app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
+			// Do not overwrite right click
+			if event.Buttons()&tcell.Button3 != 0 {
+				return nil, 0
+			}
+			return event, action
+		})
+
+		app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
+			// Do not overwrite right click
+			if event.Buttons()&tcell.Button3 != 0 {
+				return nil, 0
+			}
+			return event, action
+		})
+
+		if err := app.SetRoot(pages, true).SetFocus(table).Run(); err != nil {
+
+			fmt.Printf("Error starting app: %s\n", err)
+			return
+		}
 	} // end of else block
 
 	if selectedAction == "enter" && selectedInstance != nil {
@@ -797,7 +784,7 @@ func runList() {
 
 		crumbleEffect()
 		fmt.Printf("\033[38;2;48;186;120m🚀 Assembling permanent Distrobox instance from %s...\033[0m\n", selectedProject.Name)
-				absPath, _ := filepath.Abs(selectedProject.Path)
+		absPath, _ := filepath.Abs(selectedProject.Path)
 		cmd := exec.Command("distrobox", "assemble", "create", "--replace", "--file", absPath)
 		absDir, _ := filepath.Abs(name)
 		if info, err := os.Stat(absDir); err == nil && info.IsDir() {
@@ -811,7 +798,7 @@ func runList() {
 		}
 		if name != "" {
 			fmt.Printf("\033[38;2;48;186;120m✅ Created successfully. Entering %s...\033[0m\n", name)
-						enterCmd := exec.Command("distrobox", "enter", name)
+			enterCmd := exec.Command("distrobox", "enter", name)
 			if info, err := os.Stat(absDir); err == nil && info.IsDir() {
 				enterCmd.Dir = absDir
 			}
