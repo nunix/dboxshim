@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/md5"
 	"fmt"
 	"io"
 	"math/rand"
@@ -11,7 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"crypto/md5"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -317,7 +317,7 @@ func parseIniFile(filepath string) ([]string, string) {
 func fetchGitRepo(urlStr string) ([]ProjectFile, error) {
 	hash := fmt.Sprintf("%x", md5.Sum([]byte(urlStr)))
 	repoPath := filepath.Join(os.TempDir(), "dboxshim", "repos", hash)
-	
+
 	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
 		err := os.MkdirAll(repoPath, 0755)
 		if err != nil {
@@ -348,10 +348,13 @@ func fetchGitRepo(urlStr string) ([]ProjectFile, error) {
 			fullPath := filepath.Join(repoPath, line)
 			content, err := os.ReadFile(fullPath)
 			if err == nil {
+				repoDomainPath := strings.TrimPrefix(urlStr, "https://")
+				repoDomainPath = strings.TrimPrefix(repoDomainPath, "http://")
+				repoDomainPath = strings.TrimSuffix(repoDomainPath, ".git")
 				projects = append(projects, ProjectFile{
-					Name:    "🌐 " + filepath.Base(line) + " (" + filepath.Base(urlStr) + ")",
-					Path:    fullPath,
-					Content: string(content),
+					Name:     "🌐 " + filepath.Base(line) + " (" + repoDomainPath + ")",
+					Path:     fullPath,
+					Content:  string(content),
 					RepoPath: repoPath,
 					RepoURL:  urlStr,
 				})
@@ -798,16 +801,53 @@ func runList() {
 				urlInput := tview.NewInputField().
 					SetLabel(" URL: ").
 					SetFieldWidth(50)
-				
+
 				form := tview.NewForm().
 					AddFormItem(urlInput).
 					AddButton("Fetch", func() {
 						url := urlInput.GetText()
 						if url != "" {
+							loadingText := tview.NewTextView().
+								SetTextAlign(tview.AlignCenter).
+								SetDynamicColors(true)
+							loadingText.SetBorder(true).SetTitle(" 🌐 Fetching Connection ").SetTitleColor(tcell.ColorForestGreen)
+
+							loadingModal := tview.NewFlex().
+								AddItem(nil, 0, 1, false).
+								AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+									AddItem(nil, 0, 1, false).
+									AddItem(loadingText, 5, 1, true).
+									AddItem(nil, 0, 1, false), 50, 1, true).
+								AddItem(nil, 0, 1, false)
+
+							pages.AddPage("loadingModal", loadingModal, true, true)
+							pages.ShowPage("loadingModal")
+							app.SetFocus(loadingModal)
+
+							stopAnim := make(chan bool)
+							go func() {
+								frames := []string{"[green]⠋[-] 📡", "[green]⠙[-] 📡", "[green]⠹[-] 📡", "[green]⠸[-] 📡", "[green]⠼[-] 📡", "[green]⠴[-] 📡", "[green]⠦[-] 📡", "[green]⠧[-] 📡", "[green]⠇[-] 📡", "[green]⠏[-] 📡"}
+								i := 0
+								for {
+									select {
+									case <-stopAnim:
+										return
+									default:
+										app.QueueUpdateDraw(func() {
+											loadingText.SetText(fmt.Sprintf("\n%s  Connecting to:\n[yellow]%s[-]", frames[i%len(frames)], url))
+										})
+										i++
+										time.Sleep(100 * time.Millisecond)
+									}
+								}
+							}()
+
 							go func() {
 								if strings.Contains(url, "github.com") && !strings.Contains(url, "raw.githubusercontent.com") && !strings.HasSuffix(url, ".ini") {
 									projects, err := fetchGitRepo(url)
+									stopAnim <- true
 									app.QueueUpdateDraw(func() {
+										pages.RemovePage("loadingModal")
 										if err == nil {
 											remoteProjects = append(remoteProjects, projects...)
 											refreshInstances()
@@ -830,7 +870,9 @@ func runList() {
 									})
 								} else {
 									fileName, content, err := fetchRemoteIni(url)
+									stopAnim <- true
 									app.QueueUpdateDraw(func() {
+										pages.RemovePage("loadingModal")
 										if err == nil {
 											tempPath := filepath.Join(os.TempDir(), fileName)
 											os.WriteFile(tempPath, []byte(content), 0644)
@@ -866,9 +908,9 @@ func runList() {
 						pages.RemovePage("urlInput")
 						app.SetFocus(table)
 					})
-				
+
 				form.SetBorder(true).SetTitle(" Open Remote INI URL ").SetTitleColor(tcell.ColorForestGreen)
-				
+
 				flex := tview.NewFlex().
 					AddItem(nil, 0, 1, false).
 					AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
@@ -876,7 +918,7 @@ func runList() {
 						AddItem(form, 7, 1, true).
 						AddItem(nil, 0, 1, false), 60, 1, true).
 					AddItem(nil, 0, 1, false)
-				
+
 				pages.AddPage("urlInput", flex, true, true)
 				pages.ShowPage("urlInput")
 				app.SetFocus(form)
