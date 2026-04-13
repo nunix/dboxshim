@@ -2,8 +2,12 @@ package main
 
 import (
 	"bufio"
+	"crypto/md5"
 	"fmt"
+	"io"
 	"math/rand"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,9 +53,11 @@ type Instance struct {
 }
 
 type ProjectFile struct {
-	Name    string
-	Path    string
-	Content string
+	Name     string
+	Path     string
+	Content  string
+	RepoPath string
+	RepoURL  string
 }
 
 func parseDistroboxList(out string, ttype string, projectNames map[string]bool) []Instance {
@@ -309,12 +315,110 @@ func parseIniFile(filepath string) ([]string, string) {
 	return args, name
 }
 
+func fetchGitRepo(urlStr string) ([]ProjectFile, error) {
+	var repoPath string
+	
+	parseUrl := urlStr
+	if !strings.Contains(urlStr, "://") && !strings.HasPrefix(urlStr, "git@") {
+		parseUrl = "https://" + urlStr
+	} else if strings.HasPrefix(urlStr, "git@") {
+		parseUrl = "ssh://" + strings.Replace(urlStr, ":", "/", 1)
+	}
+
+	parsedURL, err := url.Parse(parseUrl)
+	if err == nil && parsedURL.Host != "" {
+		cleanPath := strings.TrimSuffix(parsedURL.Path, ".git")
+		repoPath = filepath.Join(os.TempDir(), "dboxshim", "repos", parsedURL.Host, cleanPath)
+	} else {
+		hash := fmt.Sprintf("%x", md5.Sum([]byte(urlStr)))
+		repoPath = filepath.Join(os.TempDir(), "dboxshim", "repos", hash)
+	}
+
+	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+		err := os.MkdirAll(repoPath, 0755)
+		if err != nil {
+			return nil, err
+		}
+		
+		cloneUrl := urlStr
+		if !strings.Contains(urlStr, "://") && !strings.HasPrefix(urlStr, "git@") {
+			cloneUrl = "https://" + urlStr
+		}
+		
+		cmd := exec.Command("git", "clone", "--filter=blob:none", "--no-checkout", "--depth=1", cloneUrl, ".")
+		cmd.Dir = repoPath
+		if err := cmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to clone repository: %v", err)
+		}
+	} else {
+		cmd := exec.Command("git", "pull")
+		cmd.Dir = repoPath
+		cmd.Run()
+	}
+
+	out, err := exec.Command("git", "-C", repoPath, "ls-tree", "-r", "--name-only", "HEAD").Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list repository files: %v", err)
+	}
+
+	var projects []ProjectFile
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasSuffix(line, ".ini") {
+			exec.Command("git", "-C", repoPath, "checkout", "HEAD", "--", line).Run()
+			fullPath := filepath.Join(repoPath, line)
+			content, err := os.ReadFile(fullPath)
+			if err == nil {
+				repoDomainPath := strings.TrimPrefix(parseUrl, "https://")
+				repoDomainPath = strings.TrimPrefix(repoDomainPath, "http://")
+				repoDomainPath = strings.TrimPrefix(repoDomainPath, "ssh://")
+				repoDomainPath = strings.TrimSuffix(repoDomainPath, ".git")
+				projects = append(projects, ProjectFile{
+					Name:     "🌐 " + filepath.Base(line) + " (" + repoDomainPath + ")",
+					Path:     fullPath,
+					Content:  string(content),
+					RepoPath: repoPath,
+					RepoURL:  urlStr,
+				})
+			}
+		}
+	}
+	if len(projects) == 0 {
+		return nil, fmt.Errorf("no .ini files found in repository")
+	}
+	return projects, nil
+}
+
+func fetchRemoteIni(urlStr string) (string, string, error) {
+	resp, err := http.Get(urlStr)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", "", err
+	}
+
+	parts := strings.Split(urlStr, "/")
+	fileName := parts[len(parts)-1]
+	if fileName == "" || !strings.Contains(fileName, ".ini") {
+		fileName = "remote.ini"
+	}
+
+	return fileName, string(body), nil
+}
+
 func runList() {
 	var userInstances []Instance
 	var rootInstances []Instance
 	var projectFiles []ProjectFile
+	var remoteProjects []ProjectFile
 
 	projectFiles = loadProjects()
+	projectFiles = append(projectFiles, remoteProjects...)
 	projectNames := make(map[string]bool)
 	for _, proj := range projectFiles {
 		_, name := parseIniFile(proj.Path)
@@ -373,7 +477,7 @@ func runList() {
 			SetWrap(true).
 			SetWordWrap(true)
 		commandsBox.SetBorder(true).SetTitle(" ⌨️  Commands ").SetTitleColor(tcell.ColorForestGreen)
-		commandsBox.SetText("[green]↑/↓/j/k:[white] Navigate\n[green]Enter:[white] Select/Enter\n[green]Space:[white] Start/Stop\n[green]d:[white] Delete\n[green]u/r/p:[white] Switch Tabs\n[green]←/→ or h/l:[white] Prev/Next Tab\n[green]q/ESC:[white] Quit")
+		commandsBox.SetText("[green]↑/↓/j/k:[white] Navigate\n[green]Enter:[white] Select/Enter\n[green]Space:[white] Start/Stop\n[green]d:[white] Delete\n[green]u/r/p:[white] Switch Tabs\n[green]←/→ or h/l:[white] Prev/Next Tab\n[green]o:[white] Open URL\n[green]q/ESC:[white] Quit")
 
 		rightFlex := tview.NewFlex().
 			SetDirection(tview.FlexRow).
@@ -477,6 +581,7 @@ func runList() {
 		}
 		refreshInstances := func() {
 			projectFiles = loadProjects()
+			projectFiles = append(projectFiles, remoteProjects...)
 			projectNames := make(map[string]bool)
 			for _, proj := range projectFiles {
 				_, name := parseIniFile(proj.Path)
@@ -646,11 +751,8 @@ func runList() {
 				return nil
 			}
 
-			if pages.HasPage("modal") {
-				name, _ := pages.GetFrontPage()
-				if name == "modal" {
-					return event
-				}
+			if name, _ := pages.GetFrontPage(); name != "main" {
+				return event
 			}
 
 			if (currentTab == "user" || currentTab == "root") && len(currentInstances) == 0 {
@@ -716,6 +818,133 @@ func runList() {
 				} else {
 					switchTab("user")
 				}
+				return nil
+			}
+			if event.Rune() == 'o' {
+				urlInput := tview.NewInputField().
+					SetLabel(" URL: ").
+					SetFieldWidth(50)
+
+				form := tview.NewForm().
+					AddFormItem(urlInput).
+					AddButton("Fetch", func() {
+						url := urlInput.GetText()
+						if url != "" {
+							loadingText := tview.NewTextView().
+								SetTextAlign(tview.AlignCenter).
+								SetDynamicColors(true)
+							loadingText.SetBorder(true).SetTitle(" 🌐 Fetching Connection ").SetTitleColor(tcell.ColorForestGreen)
+
+							loadingModal := tview.NewFlex().
+								AddItem(nil, 0, 1, false).
+								AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+									AddItem(nil, 0, 1, false).
+									AddItem(loadingText, 5, 1, true).
+									AddItem(nil, 0, 1, false), 50, 1, true).
+								AddItem(nil, 0, 1, false)
+
+							pages.AddPage("loadingModal", loadingModal, true, true)
+							pages.ShowPage("loadingModal")
+							app.SetFocus(loadingModal)
+
+							stopAnim := make(chan bool)
+							go func() {
+								frames := []string{"[green]⠋[-] 📡", "[green]⠙[-] 📡", "[green]⠹[-] 📡", "[green]⠸[-] 📡", "[green]⠼[-] 📡", "[green]⠴[-] 📡", "[green]⠦[-] 📡", "[green]⠧[-] 📡", "[green]⠇[-] 📡", "[green]⠏[-] 📡"}
+								i := 0
+								for {
+									select {
+									case <-stopAnim:
+										return
+									default:
+										app.QueueUpdateDraw(func() {
+											loadingText.SetText(fmt.Sprintf("\n%s  Connecting to:\n[yellow]%s[-]", frames[i%len(frames)], url))
+										})
+										i++
+										time.Sleep(100 * time.Millisecond)
+									}
+								}
+							}()
+
+							go func() {
+								if strings.Contains(url, "github.com") && !strings.Contains(url, "raw.githubusercontent.com") && !strings.HasSuffix(url, ".ini") {
+									projects, err := fetchGitRepo(url)
+									stopAnim <- true
+									app.QueueUpdateDraw(func() {
+										pages.RemovePage("loadingModal")
+										if err == nil {
+											remoteProjects = append(remoteProjects, projects...)
+											refreshInstances()
+											pages.RemovePage("urlInput")
+											app.SetFocus(table)
+											switchTab("projects")
+										} else {
+											pages.RemovePage("urlInput")
+											errModal := tview.NewModal().
+												SetText("Error fetching Repo: " + err.Error()).
+												AddButtons([]string{"OK"}).
+												SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+													pages.RemovePage("errorModal")
+													app.SetFocus(table)
+												})
+											pages.AddPage("errorModal", errModal, false, false)
+											pages.ShowPage("errorModal")
+											app.SetFocus(errModal)
+										}
+									})
+								} else {
+									fileName, content, err := fetchRemoteIni(url)
+									stopAnim <- true
+									app.QueueUpdateDraw(func() {
+										pages.RemovePage("loadingModal")
+										if err == nil {
+											tempPath := filepath.Join(os.TempDir(), fileName)
+											os.WriteFile(tempPath, []byte(content), 0644)
+											remoteProject := ProjectFile{
+												Name:    "🌐 " + fileName,
+												Path:    tempPath,
+												Content: content,
+											}
+											remoteProjects = append(remoteProjects, remoteProject)
+											refreshInstances()
+											pages.RemovePage("urlInput")
+											app.SetFocus(table)
+											switchTab("projects")
+										} else {
+											pages.RemovePage("urlInput")
+											errModal := tview.NewModal().
+												SetText("Error fetching URL: " + err.Error()).
+												AddButtons([]string{"OK"}).
+												SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+													pages.RemovePage("errorModal")
+													app.SetFocus(table)
+												})
+											pages.AddPage("errorModal", errModal, false, false)
+											pages.ShowPage("errorModal")
+											app.SetFocus(errModal)
+										}
+									})
+								}
+							}()
+						}
+					}).
+					AddButton("Cancel", func() {
+						pages.RemovePage("urlInput")
+						app.SetFocus(table)
+					})
+
+				form.SetBorder(true).SetTitle(" Open Remote INI URL ").SetTitleColor(tcell.ColorForestGreen)
+
+				flex := tview.NewFlex().
+					AddItem(nil, 0, 1, false).
+					AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+						AddItem(nil, 0, 1, false).
+						AddItem(form, 7, 1, true).
+						AddItem(nil, 0, 1, false), 60, 1, true).
+					AddItem(nil, 0, 1, false)
+
+				pages.AddPage("urlInput", flex, true, true)
+				pages.ShowPage("urlInput")
+				app.SetFocus(form)
 				return nil
 			}
 			return event
@@ -786,7 +1015,22 @@ func runList() {
 		fmt.Printf("\033[38;2;48;186;120m🚀 Assembling permanent Distrobox instance from %s...\033[0m\n", selectedProject.Name)
 		absPath, _ := filepath.Abs(selectedProject.Path)
 		cmd := exec.Command("distrobox", "assemble", "create", "--replace", "--file", absPath)
-		absDir, _ := filepath.Abs(name)
+		var absDir string
+		if selectedProject.RepoPath != "" {
+			iniDirRelative := filepath.Dir(strings.TrimPrefix(selectedProject.Path, selectedProject.RepoPath+"/"))
+			if iniDirRelative != "." && iniDirRelative != "" {
+				exec.Command("git", "-C", selectedProject.RepoPath, "checkout", "HEAD", "--", iniDirRelative).Run()
+			}
+			if name != "" {
+				exec.Command("git", "-C", selectedProject.RepoPath, "checkout", "HEAD", "--", filepath.Join(iniDirRelative, name)).Run()
+			}
+			absDir = filepath.Join(selectedProject.RepoPath, iniDirRelative, name)
+			if info, err := os.Stat(absDir); err != nil || !info.IsDir() {
+				absDir = filepath.Join(selectedProject.RepoPath, iniDirRelative)
+			}
+		} else {
+			absDir, _ = filepath.Abs(name)
+		}
 		if info, err := os.Stat(absDir); err == nil && info.IsDir() {
 			cmd.Dir = absDir
 		}
@@ -854,7 +1098,22 @@ func runList() {
 		fmt.Printf("\033[38;2;48;186;120m⚡ Launching ephemeral instance %s from %s...\033[0m\n", name, selectedProject.Name)
 		fullArgs := append([]string{"--yes"}, args...)
 		cmd := exec.Command("distrobox-ephemeral", fullArgs...)
-		absDir, _ := filepath.Abs(originalName)
+		var absDir string
+		if selectedProject.RepoPath != "" {
+			iniDirRelative := filepath.Dir(strings.TrimPrefix(selectedProject.Path, selectedProject.RepoPath+"/"))
+			if iniDirRelative != "." && iniDirRelative != "" {
+				exec.Command("git", "-C", selectedProject.RepoPath, "checkout", "HEAD", "--", iniDirRelative).Run()
+			}
+			if originalName != "" {
+				exec.Command("git", "-C", selectedProject.RepoPath, "checkout", "HEAD", "--", filepath.Join(iniDirRelative, originalName)).Run()
+			}
+			absDir = filepath.Join(selectedProject.RepoPath, iniDirRelative, originalName)
+			if info, err := os.Stat(absDir); err != nil || !info.IsDir() {
+				absDir = filepath.Join(selectedProject.RepoPath, iniDirRelative)
+			}
+		} else {
+			absDir, _ = filepath.Abs(originalName)
+		}
 		if info, err := os.Stat(absDir); err == nil && info.IsDir() {
 			cmd.Dir = absDir
 		}
