@@ -350,7 +350,7 @@ func runList() {
 		}
 	} else {
 
-	app := tview.NewApplication()
+	app := tview.NewApplication().EnableMouse(true)
 	pages := tview.NewPages()
 
 	table := tview.NewTable().
@@ -381,14 +381,43 @@ func runList() {
 		AddItem(commandsBox, 11, 1, false)
 
 
-	tabs := tview.NewTextView().
-		SetDynamicColors(true).
-		SetRegions(true).
-		SetWrap(false).
-		SetTextAlign(tview.AlignCenter)
+	tabUser := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter)
+	tabRoot := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter)
+	tabProj := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter)
+
+	tabs := tview.NewFlex().
+		AddItem(tview.NewBox(), 0, 1, false).
+		AddItem(tabUser, 24, 1, false).
+		AddItem(tabRoot, 24, 1, false).
+		AddItem(tabProj, 18, 1, false).
+		AddItem(tview.NewBox(), 0, 1, false)
 
 	currentTab := "user"
 	var currentInstances []Instance
+	
+	var switchTab func(string) // forward declaration
+
+	tabUser.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if action == tview.MouseLeftClick {
+			switchTab("user")
+			return action, nil
+		}
+		return action, event
+	})
+	tabRoot.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if action == tview.MouseLeftClick {
+			switchTab("root")
+			return action, nil
+		}
+		return action, event
+	})
+	tabProj.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if action == tview.MouseLeftClick {
+			switchTab("projects")
+			return action, nil
+		}
+		return action, event
+	})
 
 	updateDetails := func(row int) {
 		detailsBox.Clear()
@@ -453,12 +482,15 @@ func runList() {
 		} else if currentTab == "root" {
 			rootStyle = "[white:#8b0000]"
 		} else if currentTab == "projects" {
-			projStyle = "[black:#008b8b]" // Dark cyan for projects
+			projStyle = "[black:#008b8b]"
 		}
-		tabs.SetText(fmt.Sprintf(`%s  User Instances (u)  [-:-]    %s  Root Instances (r)  [-:-]    %s  Projects (p)  [-:-]`, userStyle, rootStyle, projStyle))
+		
+		tabUser.SetText(fmt.Sprintf(`%s  User Instances (u)  [-:-]`, userStyle))
+		tabRoot.SetText(fmt.Sprintf(`%s  Root Instances (r)  [-:-]`, rootStyle))
+		tabProj.SetText(fmt.Sprintf(`%s  Projects (p)  [-:-]`, projStyle))
 	}
 
-	switchTab := func(tab string) {
+	switchTab = func(tab string) {
 		currentTab = tab
 		if tab == "user" {
 			currentInstances = userInstances
@@ -511,7 +543,7 @@ func runList() {
 			}
 		})
 
-	table.SetSelectedFunc(func(row, column int) {
+	handleTableSelect := func(row, column int) {
 		if currentTab == "projects" {
 			if row < 1 || row > len(projectFiles) {
 				return
@@ -527,6 +559,21 @@ func runList() {
 			selectedAction = "enter"
 			app.Stop()
 		}
+	}
+
+	table.SetSelectedFunc(handleTableSelect)
+
+	table.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if action == tview.MouseLeftDoubleClick {
+			row, col := table.GetSelection()
+			// Only trigger if we are clicking on the selected row (tview handles selection on single click before double click)
+			// Wait, the double click event has X and Y. Let's check where the click actually happened!
+			// Actually, tview natively updates the selection on the first click.
+			// To be safer, we just trigger enter for the currently selected row.
+			handleTableSelect(row, col)
+			return action, nil
+		}
+		return action, event
 	})
 
 	contentFlex := tview.NewFlex().
