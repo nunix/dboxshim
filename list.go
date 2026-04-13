@@ -382,13 +382,18 @@ func runList() {
 
 
 	tabUser := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter)
+	tabUser.SetBorder(true)
 	tabRoot := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter)
+	tabRoot.SetBorder(true)
 	tabProj := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter)
+	tabProj.SetBorder(true)
 
 	tabs := tview.NewFlex().
 		AddItem(tview.NewBox(), 0, 1, false).
 		AddItem(tabUser, 24, 1, false).
+		AddItem(tview.NewBox(), 1, 1, false).
 		AddItem(tabRoot, 24, 1, false).
+		AddItem(tview.NewBox(), 1, 1, false).
 		AddItem(tabProj, 18, 1, false).
 		AddItem(tview.NewBox(), 0, 1, false)
 
@@ -597,7 +602,7 @@ func runList() {
 
 	mainFlex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(tabs, 1, 0, false).
+		AddItem(tabs, 3, 0, false).
 		AddItem(contentFlex, 0, 1, true).
 		AddItem(statusBar, 1, 0, false)
 
