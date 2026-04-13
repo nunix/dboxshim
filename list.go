@@ -17,10 +17,6 @@ import (
 
 "github.com/89luca89/distrobox/pkg/containermanager"
 	"github.com/89luca89/distrobox/pkg/containermanager/providers"
-	"github.com/89luca89/distrobox/pkg/commands"
-	"github.com/89luca89/distrobox/pkg/config"
-	"github.com/89luca89/distrobox/pkg/manifest"
-	"github.com/89luca89/distrobox/pkg/ui"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 	"github.com/spf13/cobra"
@@ -735,9 +731,12 @@ func runList() {
 							if inst.StatusEmoji == "🟢" {
 								cm, _ := providers.NewAutoDetect(inst.Type == "Root", "sudo", false)
 								cm.Stop(context.Background(), []string{inst.Name})
-								} else {
-									exec.Command("distrobox", "enter", "-T", inst.Name, "--", "true").Run()
-
+							} else {
+								args := []string{"enter", "-T", inst.Name, "--", "true"}
+								if inst.Type == "Root" {
+									args = append([]string{"--root"}, args...)
+								}
+								exec.Command("distrobox", args...).Run()
 							}
 							app.QueueUpdateDraw(func() {
 								refreshInstances()
@@ -1037,16 +1036,30 @@ func runList() {
 			fmt.Printf("Error entering distrobox: %s\n", err)
 		}
 	} else if selectedAction == "permanent" && selectedProject != nil {
-		absPath, _ := filepath.Abs(selectedProject.Path)
-		manifestItems, err := manifest.Parse(context.Background(), absPath)
-		if err != nil || len(manifestItems) == 0 {
-			fmt.Println("Error parsing INI file or no parameters found.")
+		_, name := parseIniFile(selectedProject.Path)
+		exists := false
+		for _, inst := range userInstances {
+			if inst.Name == name {
+				exists = true
+				break
+			}
+		}
+		for _, inst := range rootInstances {
+			if inst.Name == name {
+				exists = true
+				break
+			}
+		}
+
+		if exists {
+			fmt.Printf("\033[31m❌ Instance '%s' already exists. Cancelling permanent creation.\033[0m\n", name)
 			return
 		}
-		name := manifestItems[0].Name
 
 		crumbleEffect()
 		fmt.Printf("\033[38;2;48;186;120m🚀 Assembling permanent Distrobox instance from %s...\033[0m\n", selectedProject.Name)
+		absPath, _ := filepath.Abs(selectedProject.Path)
+		cmd := exec.Command("distrobox", "assemble", "create", "--replace", "--file", absPath)
 		var absDir string
 		if selectedProject.RepoPath != "" {
 			iniDirRelative := filepath.Dir(strings.TrimPrefix(selectedProject.Path, selectedProject.RepoPath+"/"))
@@ -1057,122 +1070,105 @@ func runList() {
 				exec.Command("git", "-C", selectedProject.RepoPath, "checkout", "HEAD", "--", filepath.Join(iniDirRelative, name)).Run()
 			}
 			absDir = filepath.Join(selectedProject.RepoPath, iniDirRelative, name)
-			if info, statErr := os.Stat(absDir); statErr != nil || !info.IsDir() {
+			if info, err := os.Stat(absDir); err != nil || !info.IsDir() {
 				absDir = filepath.Join(selectedProject.RepoPath, iniDirRelative)
 			}
 		} else {
-			absDir = filepath.Dir(absPath)
+			absDir, _ = filepath.Abs(name)
 		}
-
-		os.Chdir(absDir)
-
-		cfg, err := config.LoadValues()
-		if err != nil {
-			cfg = config.DefaultValues()
+		if info, err := os.Stat(absDir); err == nil && info.IsDir() {
+			cmd.Dir = absDir
 		}
-		cm, _ := providers.NewAutoDetect(false, "sudo", false)
-		prompter := ui.NewPrompter(*bufio.NewReader(os.Stdin), os.Stdout)
-		progress := ui.NewProgress(os.Stdout)
-		printer := ui.NewPrinter(os.Stdout, true)
-
-		opts := commands.AssembleOptions{
-			Items:   manifestItems,
-			Replace: true,
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("Error assembling instance: %s\n", err)
+			return
 		}
-
-		assembleCmd := commands.NewAssembleCommand(cfg, cm, prompter, progress, printer)
-		if err := assembleCmd.Execute(context.Background(), opts); err != nil {
-			fmt.Printf("Error assembling instance: %v\n", err)
+		if name != "" {
+			fmt.Printf("\033[38;2;48;186;120m✅ Created successfully. Entering %s...\033[0m\n", name)
+			enterCmd := exec.Command("distrobox", "enter", name)
+			if info, err := os.Stat(absDir); err == nil && info.IsDir() {
+				enterCmd.Dir = absDir
+			}
+			enterCmd.Stdin = os.Stdin
+			enterCmd.Stdout = os.Stdout
+			enterCmd.Stderr = os.Stderr
+			enterCmd.Run()
+		}
+	} else if selectedAction == "ephemeral" && selectedProject != nil {
+		args, name := parseIniFile(selectedProject.Path)
+		if len(args) == 0 {
+			fmt.Println("Error parsing INI file or no parameters found.")
 			return
 		}
 
-		if name != "" {
-			fmt.Printf("\033[38;2;48;186;120m✅ Created successfully. Entering %s...\033[0m\n", name)
-			enterOpts := containermanager.EnterOptions{ContainerName: name}
-			cm.Enter(context.Background(), enterOpts, progress, printer)
+		originalName := name
+		exists := false
+		var existID string
+		for _, inst := range userInstances {
+			if inst.Name == name {
+				exists = true
+				existID = inst.ID
+				break
+			}
 		}
-	} else if selectedAction == "ephemeral" && selectedProject != nil {
-	absPath, _ := filepath.Abs(selectedProject.Path)
-	manifestItems, err := manifest.Parse(context.Background(), absPath)
-	if err != nil || len(manifestItems) == 0 {
-		fmt.Println("Error parsing INI file or no parameters found.")
-		return
-	}
-	name := manifestItems[0].Name
-	originalName := name
-	
-	if name == "" {
-		name = "ephemeral-box"
-	} else {
-		newName := name
-		allInstances := append(userInstances, rootInstances...)
-		for {
-			exists := false
-			for _, instance := range allInstances {
-				if instance.Name == newName {
+		if !exists {
+			for _, inst := range rootInstances {
+				if inst.Name == name {
 					exists = true
+					existID = inst.ID
 					break
 				}
 			}
-			if !exists {
-				break
+		}
+
+		if exists {
+			suffix := existID
+			if suffix == "" {
+				rand.Seed(time.Now().UnixNano())
+				suffix = fmt.Sprintf("%04x", rand.Intn(0x10000))
 			}
-			newName = name + "-" + fmt.Sprintf("%d", time.Now().UnixNano()%10000)
+			newName := fmt.Sprintf("%s-%s", name, suffix)
+			for i, arg := range args {
+				if arg == "--name" && i+1 < len(args) {
+					args[i+1] = newName
+					break
+				}
+			}
+			name = newName
 		}
-		name = newName
-	}
-	manifestItems[0].Name = name
 
-	crumbleEffect()
-	fmt.Printf("\033[38;2;48;186;120m⚡ Launching ephemeral instance %s from %s...\033[0m\n", name, selectedProject.Name)
-	var absDir string
-	if selectedProject.RepoPath != "" {
-		iniDirRelative := filepath.Dir(strings.TrimPrefix(selectedProject.Path, selectedProject.RepoPath+"/"))
-		if iniDirRelative != "." && iniDirRelative != "" {
-			exec.Command("git", "-C", selectedProject.RepoPath, "checkout", "HEAD", "--", iniDirRelative).Run()
+		crumbleEffect()
+		fmt.Printf("\033[38;2;48;186;120m⚡ Launching ephemeral instance %s from %s...\033[0m\n", name, selectedProject.Name)
+		fullArgs := append([]string{"--yes"}, args...)
+		cmd := exec.Command("distrobox-ephemeral", fullArgs...)
+		var absDir string
+		if selectedProject.RepoPath != "" {
+			iniDirRelative := filepath.Dir(strings.TrimPrefix(selectedProject.Path, selectedProject.RepoPath+"/"))
+			if iniDirRelative != "." && iniDirRelative != "" {
+				exec.Command("git", "-C", selectedProject.RepoPath, "checkout", "HEAD", "--", iniDirRelative).Run()
+			}
+			if originalName != "" {
+				exec.Command("git", "-C", selectedProject.RepoPath, "checkout", "HEAD", "--", filepath.Join(iniDirRelative, originalName)).Run()
+			}
+			absDir = filepath.Join(selectedProject.RepoPath, iniDirRelative, originalName)
+			if info, err := os.Stat(absDir); err != nil || !info.IsDir() {
+				absDir = filepath.Join(selectedProject.RepoPath, iniDirRelative)
+			}
+		} else {
+			absDir, _ = filepath.Abs(originalName)
 		}
-		if originalName != "" {
-			exec.Command("git", "-C", selectedProject.RepoPath, "checkout", "HEAD", "--", filepath.Join(iniDirRelative, originalName)).Run()
+		if info, err := os.Stat(absDir); err == nil && info.IsDir() {
+			cmd.Dir = absDir
 		}
-		absDir = filepath.Join(selectedProject.RepoPath, iniDirRelative, originalName)
-		if info, statErr := os.Stat(absDir); statErr != nil || !info.IsDir() {
-			absDir = filepath.Join(selectedProject.RepoPath, iniDirRelative)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("Error running ephemeral instance: %s\n", err)
 		}
-	} else {
-		absDir = filepath.Dir(absPath)
 	}
-
-	os.Chdir(absDir)
-
-	cfg, err := config.LoadValues()
-	if err != nil {
-		cfg = config.DefaultValues()
-	}
-	cm, _ := providers.NewAutoDetect(false, "sudo", false)
-	prompter := ui.NewPrompter(*bufio.NewReader(os.Stdin), os.Stdout)
-	progress := ui.NewProgress(os.Stdout)
-	printer := ui.NewPrinter(os.Stdout, true)
-
-	opts := commands.AssembleOptions{
-		Items:   manifestItems,
-		Replace: true,
-	}
-
-	assembleCmd := commands.NewAssembleCommand(cfg, cm, prompter, progress, printer)
-	if err := assembleCmd.Execute(context.Background(), opts); err != nil {
-		fmt.Printf("Error assembling ephemeral instance: %v\n", err)
-		return
-	}
-
-	if name != "" {
-		fmt.Printf("\033[38;2;48;186;120m✅ Created successfully. Entering %s...\033[0m\n", name)
-		enterOpts := containermanager.EnterOptions{ContainerName: name}
-		cm.Enter(context.Background(), enterOpts, progress, printer)
-		
-		// Delete it afterward
-		cm.Remove(context.Background(), name, containermanager.RmOptions{Force: true})
-	}
-}
 }
 
 func crumbleEffect() {
