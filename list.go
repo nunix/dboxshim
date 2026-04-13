@@ -3,7 +3,9 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"math/rand"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -309,12 +311,35 @@ func parseIniFile(filepath string) ([]string, string) {
 	return args, name
 }
 
+func fetchRemoteIni(urlStr string) (string, string, error) {
+	resp, err := http.Get(urlStr)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", "", err
+	}
+
+	parts := strings.Split(urlStr, "/")
+	fileName := parts[len(parts)-1]
+	if fileName == "" || !strings.Contains(fileName, ".ini") {
+		fileName = "remote.ini"
+	}
+
+	return fileName, string(body), nil
+}
+
 func runList() {
 	var userInstances []Instance
 	var rootInstances []Instance
 	var projectFiles []ProjectFile
+	var remoteProjects []ProjectFile
 
 	projectFiles = loadProjects()
+	projectFiles = append(projectFiles, remoteProjects...)
 	projectNames := make(map[string]bool)
 	for _, proj := range projectFiles {
 		_, name := parseIniFile(proj.Path)
@@ -373,7 +398,7 @@ func runList() {
 			SetWrap(true).
 			SetWordWrap(true)
 		commandsBox.SetBorder(true).SetTitle(" ⌨️  Commands ").SetTitleColor(tcell.ColorForestGreen)
-		commandsBox.SetText("[green]↑/↓/j/k:[white] Navigate\n[green]Enter:[white] Select/Enter\n[green]Space:[white] Start/Stop\n[green]d:[white] Delete\n[green]u/r/p:[white] Switch Tabs\n[green]←/→ or h/l:[white] Prev/Next Tab\n[green]q/ESC:[white] Quit")
+		commandsBox.SetText("[green]↑/↓/j/k:[white] Navigate\n[green]Enter:[white] Select/Enter\n[green]Space:[white] Start/Stop\n[green]d:[white] Delete\n[green]u/r/p:[white] Switch Tabs\n[green]←/→ or h/l:[white] Prev/Next Tab\n[green]o:[white] Open URL\n[green]q/ESC:[white] Quit")
 
 		rightFlex := tview.NewFlex().
 			SetDirection(tview.FlexRow).
@@ -477,6 +502,7 @@ func runList() {
 		}
 		refreshInstances := func() {
 			projectFiles = loadProjects()
+			projectFiles = append(projectFiles, remoteProjects...)
 			projectNames := make(map[string]bool)
 			for _, proj := range projectFiles {
 				_, name := parseIniFile(proj.Path)
@@ -646,11 +672,8 @@ func runList() {
 				return nil
 			}
 
-			if pages.HasPage("modal") {
-				name, _ := pages.GetFrontPage()
-				if name == "modal" {
-					return event
-				}
+			if name, _ := pages.GetFrontPage(); name != "main" {
+				return event
 			}
 
 			if (currentTab == "user" || currentTab == "root") && len(currentInstances) == 0 {
@@ -716,6 +739,69 @@ func runList() {
 				} else {
 					switchTab("user")
 				}
+				return nil
+			}
+			if event.Rune() == 'o' {
+				urlInput := tview.NewInputField().
+					SetLabel(" URL: ").
+					SetFieldWidth(50)
+				
+				form := tview.NewForm().
+					AddFormItem(urlInput).
+					AddButton("Fetch", func() {
+						url := urlInput.GetText()
+						if url != "" {
+							go func() {
+								fileName, content, err := fetchRemoteIni(url)
+								app.QueueUpdateDraw(func() {
+									if err == nil {
+										tempPath := filepath.Join(os.TempDir(), fileName)
+										os.WriteFile(tempPath, []byte(content), 0644)
+										remoteProject := ProjectFile{
+											Name:    "🌐 " + fileName,
+											Path:    tempPath,
+											Content: content,
+										}
+										remoteProjects = append(remoteProjects, remoteProject)
+										refreshInstances()
+										pages.RemovePage("urlInput")
+										app.SetFocus(table)
+										switchTab("projects")
+									} else {
+										pages.RemovePage("urlInput")
+										errModal := tview.NewModal().
+											SetText("Error fetching URL: " + err.Error()).
+											AddButtons([]string{"OK"}).
+											SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+												pages.RemovePage("errorModal")
+												app.SetFocus(table)
+											})
+										pages.AddPage("errorModal", errModal, false, false)
+										pages.ShowPage("errorModal")
+										app.SetFocus(errModal)
+									}
+								})
+							}()
+						}
+					}).
+					AddButton("Cancel", func() {
+						pages.RemovePage("urlInput")
+						app.SetFocus(table)
+					})
+				
+				form.SetBorder(true).SetTitle(" Open Remote INI URL ").SetTitleColor(tcell.ColorForestGreen)
+				
+				flex := tview.NewFlex().
+					AddItem(nil, 0, 1, false).
+					AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+						AddItem(nil, 0, 1, false).
+						AddItem(form, 7, 1, true).
+						AddItem(nil, 0, 1, false), 60, 1, true).
+					AddItem(nil, 0, 1, false)
+				
+				pages.AddPage("urlInput", flex, true, true)
+				pages.ShowPage("urlInput")
+				app.SetFocus(form)
 				return nil
 			}
 			return event
