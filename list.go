@@ -334,8 +334,10 @@ func fetchGitRepo(urlStr string) ([]ProjectFile, error) {
 		repoPath = filepath.Join(os.TempDir(), "dboxshim", "repos", hash)
 	}
 
-	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
-		err := os.MkdirAll(repoPath, 0755)
+	gitDir := filepath.Join(repoPath, ".git")
+	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+		os.RemoveAll(repoPath)
+		err := os.MkdirAll(filepath.Dir(repoPath), 0755)
 		if err != nil {
 			return nil, err
 		}
@@ -345,10 +347,18 @@ func fetchGitRepo(urlStr string) ([]ProjectFile, error) {
 			cloneUrl = "https://" + urlStr
 		}
 		
-		cmd := exec.Command("git", "clone", "--filter=blob:none", "--no-checkout", "--depth=1", cloneUrl, ".")
-		cmd.Dir = repoPath
-		if err := cmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to clone repository: %v", err)
+		cmd := exec.Command("git", "clone", "--filter=blob:none", "--no-checkout", "--depth=1", cloneUrl, repoPath)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			// Handle error 128 or other clone errors by trying a unique path
+			if strings.Contains(err.Error(), "exit status 128") || strings.Contains(string(output), "already exists") {
+				repoPath = repoPath + "_" + fmt.Sprintf("%d", time.Now().UnixNano())
+				cmdRetry := exec.Command("git", "clone", "--filter=blob:none", "--no-checkout", "--depth=1", cloneUrl, repoPath)
+				if outRetry, errRetry := cmdRetry.CombinedOutput(); errRetry != nil {
+					return nil, fmt.Errorf("failed to clone repository after retry: %v, output: %s", errRetry, string(outRetry))
+				}
+			} else {
+				return nil, fmt.Errorf("failed to clone repository: %v, output: %s", err, string(output))
+			}
 		}
 	} else {
 		cmd := exec.Command("git", "pull")
@@ -680,6 +690,10 @@ func runList() {
 		pages.AddPage("modal", modal, false, false)
 
 		app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if name, _ := pages.GetFrontPage(); name != "main" {
+			return event
+		}
+
 			if event.Rune() == ' ' {
 				if currentTab == "user" || currentTab == "root" {
 					row, _ := table.GetSelection()
@@ -931,6 +945,15 @@ func runList() {
 						pages.RemovePage("urlInput")
 						app.SetFocus(table)
 					})
+
+				form.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+					if event.Key() == tcell.KeyEscape {
+						pages.RemovePage("urlInput")
+						app.SetFocus(table)
+						return nil
+					}
+					return event
+				})
 
 				form.SetBorder(true).SetTitle(" Open Remote INI URL ").SetTitleColor(tcell.ColorForestGreen)
 
