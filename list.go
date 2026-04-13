@@ -732,12 +732,11 @@ func runList() {
 								cm, _ := providers.NewAutoDetect(inst.Type == "Root", "sudo", false)
 								cm.Stop(context.Background(), []string{inst.Name})
 							} else {
-								cm, _ := providers.NewAutoDetect(inst.Type == "Root", "sudo", false)
-								cm.Enter(context.Background(), containermanager.EnterOptions{
-									ContainerName: inst.Name,
-									NoTTY: true,
-									CustomCommand: "true",
-								}, nil, nil)
+								args := []string{"enter", "-T", inst.Name, "--", "true"}
+								if inst.Type == "Root" {
+									args = append([]string{"--root"}, args...)
+								}
+								exec.Command("distrobox", args...).Run()
 							}
 							app.QueueUpdateDraw(func() {
 								refreshInstances()
