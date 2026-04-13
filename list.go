@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"crypto/md5"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -51,9 +52,11 @@ type Instance struct {
 }
 
 type ProjectFile struct {
-	Name    string
-	Path    string
-	Content string
+	Name     string
+	Path     string
+	Content  string
+	RepoPath string
+	RepoURL  string
 }
 
 func parseDistroboxList(out string, ttype string, projectNames map[string]bool) []Instance {
@@ -309,6 +312,56 @@ func parseIniFile(filepath string) ([]string, string) {
 		}
 	}
 	return args, name
+}
+
+func fetchGitRepo(urlStr string) ([]ProjectFile, error) {
+	hash := fmt.Sprintf("%x", md5.Sum([]byte(urlStr)))
+	repoPath := filepath.Join(os.TempDir(), "dboxshim", "repos", hash)
+	
+	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+		err := os.MkdirAll(repoPath, 0755)
+		if err != nil {
+			return nil, err
+		}
+		cmd := exec.Command("git", "clone", "--filter=blob:none", "--sparse", "--depth=1", urlStr, ".")
+		cmd.Dir = repoPath
+		if err := cmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to clone repository: %v", err)
+		}
+	} else {
+		cmd := exec.Command("git", "pull")
+		cmd.Dir = repoPath
+		cmd.Run()
+	}
+
+	out, err := exec.Command("git", "-C", repoPath, "ls-tree", "-r", "--name-only", "HEAD").Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list repository files: %v", err)
+	}
+
+	var projects []ProjectFile
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasSuffix(line, ".ini") {
+			exec.Command("git", "-C", repoPath, "checkout", "HEAD", "--", line).Run()
+			fullPath := filepath.Join(repoPath, line)
+			content, err := os.ReadFile(fullPath)
+			if err == nil {
+				projects = append(projects, ProjectFile{
+					Name:    "🌐 " + filepath.Base(line) + " (" + filepath.Base(urlStr) + ")",
+					Path:    fullPath,
+					Content: string(content),
+					RepoPath: repoPath,
+					RepoURL:  urlStr,
+				})
+			}
+		}
+	}
+	if len(projects) == 0 {
+		return nil, fmt.Errorf("no .ini files found in repository")
+	}
+	return projects, nil
 }
 
 func fetchRemoteIni(urlStr string) (string, string, error) {
@@ -752,35 +805,60 @@ func runList() {
 						url := urlInput.GetText()
 						if url != "" {
 							go func() {
-								fileName, content, err := fetchRemoteIni(url)
-								app.QueueUpdateDraw(func() {
-									if err == nil {
-										tempPath := filepath.Join(os.TempDir(), fileName)
-										os.WriteFile(tempPath, []byte(content), 0644)
-										remoteProject := ProjectFile{
-											Name:    "🌐 " + fileName,
-											Path:    tempPath,
-											Content: content,
+								if strings.Contains(url, "github.com") && !strings.Contains(url, "raw.githubusercontent.com") && !strings.HasSuffix(url, ".ini") {
+									projects, err := fetchGitRepo(url)
+									app.QueueUpdateDraw(func() {
+										if err == nil {
+											remoteProjects = append(remoteProjects, projects...)
+											refreshInstances()
+											pages.RemovePage("urlInput")
+											app.SetFocus(table)
+											switchTab("projects")
+										} else {
+											pages.RemovePage("urlInput")
+											errModal := tview.NewModal().
+												SetText("Error fetching Repo: " + err.Error()).
+												AddButtons([]string{"OK"}).
+												SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+													pages.RemovePage("errorModal")
+													app.SetFocus(table)
+												})
+											pages.AddPage("errorModal", errModal, false, false)
+											pages.ShowPage("errorModal")
+											app.SetFocus(errModal)
 										}
-										remoteProjects = append(remoteProjects, remoteProject)
-										refreshInstances()
-										pages.RemovePage("urlInput")
-										app.SetFocus(table)
-										switchTab("projects")
-									} else {
-										pages.RemovePage("urlInput")
-										errModal := tview.NewModal().
-											SetText("Error fetching URL: " + err.Error()).
-											AddButtons([]string{"OK"}).
-											SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-												pages.RemovePage("errorModal")
-												app.SetFocus(table)
-											})
-										pages.AddPage("errorModal", errModal, false, false)
-										pages.ShowPage("errorModal")
-										app.SetFocus(errModal)
-									}
-								})
+									})
+								} else {
+									fileName, content, err := fetchRemoteIni(url)
+									app.QueueUpdateDraw(func() {
+										if err == nil {
+											tempPath := filepath.Join(os.TempDir(), fileName)
+											os.WriteFile(tempPath, []byte(content), 0644)
+											remoteProject := ProjectFile{
+												Name:    "🌐 " + fileName,
+												Path:    tempPath,
+												Content: content,
+											}
+											remoteProjects = append(remoteProjects, remoteProject)
+											refreshInstances()
+											pages.RemovePage("urlInput")
+											app.SetFocus(table)
+											switchTab("projects")
+										} else {
+											pages.RemovePage("urlInput")
+											errModal := tview.NewModal().
+												SetText("Error fetching URL: " + err.Error()).
+												AddButtons([]string{"OK"}).
+												SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+													pages.RemovePage("errorModal")
+													app.SetFocus(table)
+												})
+											pages.AddPage("errorModal", errModal, false, false)
+											pages.ShowPage("errorModal")
+											app.SetFocus(errModal)
+										}
+									})
+								}
 							}()
 						}
 					}).
@@ -872,7 +950,21 @@ func runList() {
 		fmt.Printf("\033[38;2;48;186;120m🚀 Assembling permanent Distrobox instance from %s...\033[0m\n", selectedProject.Name)
 		absPath, _ := filepath.Abs(selectedProject.Path)
 		cmd := exec.Command("distrobox", "assemble", "create", "--replace", "--file", absPath)
-		absDir, _ := filepath.Abs(name)
+		var absDir string
+		if selectedProject.RepoPath != "" {
+			iniDirRelative := filepath.Dir(strings.TrimPrefix(selectedProject.Path, selectedProject.RepoPath+"/"))
+			exec.Command("git", "-C", selectedProject.RepoPath, "sparse-checkout", "add", iniDirRelative).Run()
+			if name != "" {
+				exec.Command("git", "-C", selectedProject.RepoPath, "sparse-checkout", "add", filepath.Join(iniDirRelative, name)).Run()
+			}
+			exec.Command("git", "-C", selectedProject.RepoPath, "checkout", "HEAD").Run()
+			absDir = filepath.Join(selectedProject.RepoPath, iniDirRelative, name)
+			if info, err := os.Stat(absDir); err != nil || !info.IsDir() {
+				absDir = filepath.Join(selectedProject.RepoPath, iniDirRelative)
+			}
+		} else {
+			absDir, _ = filepath.Abs(name)
+		}
 		if info, err := os.Stat(absDir); err == nil && info.IsDir() {
 			cmd.Dir = absDir
 		}
@@ -940,7 +1032,21 @@ func runList() {
 		fmt.Printf("\033[38;2;48;186;120m⚡ Launching ephemeral instance %s from %s...\033[0m\n", name, selectedProject.Name)
 		fullArgs := append([]string{"--yes"}, args...)
 		cmd := exec.Command("distrobox-ephemeral", fullArgs...)
-		absDir, _ := filepath.Abs(originalName)
+		var absDir string
+		if selectedProject.RepoPath != "" {
+			iniDirRelative := filepath.Dir(strings.TrimPrefix(selectedProject.Path, selectedProject.RepoPath+"/"))
+			exec.Command("git", "-C", selectedProject.RepoPath, "sparse-checkout", "add", iniDirRelative).Run()
+			if originalName != "" {
+				exec.Command("git", "-C", selectedProject.RepoPath, "sparse-checkout", "add", filepath.Join(iniDirRelative, originalName)).Run()
+			}
+			exec.Command("git", "-C", selectedProject.RepoPath, "checkout", "HEAD").Run()
+			absDir = filepath.Join(selectedProject.RepoPath, iniDirRelative, originalName)
+			if info, err := os.Stat(absDir); err != nil || !info.IsDir() {
+				absDir = filepath.Join(selectedProject.RepoPath, iniDirRelative)
+			}
+		} else {
+			absDir, _ = filepath.Abs(originalName)
+		}
 		if info, err := os.Stat(absDir); err == nil && info.IsDir() {
 			cmd.Dir = absDir
 		}
