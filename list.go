@@ -690,6 +690,10 @@ func runList() {
 		pages.AddPage("modal", modal, false, false)
 
 		app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if name, _ := pages.GetFrontPage(); name != "main" {
+			return event
+		}
+
 			if event.Rune() == ' ' {
 				if currentTab == "user" || currentTab == "root" {
 					row, _ := table.GetSelection()
@@ -941,6 +945,15 @@ func runList() {
 						pages.RemovePage("urlInput")
 						app.SetFocus(table)
 					})
+
+				form.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+					if event.Key() == tcell.KeyEscape {
+						pages.RemovePage("urlInput")
+						app.SetFocus(table)
+						return nil
+					}
+					return event
+				})
 
 				form.SetBorder(true).SetTitle(" Open Remote INI URL ").SetTitleColor(tcell.ColorForestGreen)
 
