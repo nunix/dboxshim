@@ -334,7 +334,9 @@ func fetchGitRepo(urlStr string) ([]ProjectFile, error) {
 		repoPath = filepath.Join(os.TempDir(), "dboxshim", "repos", hash)
 	}
 
-	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+	gitDir := filepath.Join(repoPath, ".git")
+	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+		os.RemoveAll(repoPath)
 		err := os.MkdirAll(repoPath, 0755)
 		if err != nil {
 			return nil, err
