@@ -1,11 +1,11 @@
 # DboxShim
 
-DboxShim is an advanced, lightweight terminal user interface (TUI) and CLI tool for managing Distrobox and Podman/Docker containers, written in Go. It seamlessly handles container lifecycles, project manifests (`.ini`), and system statistics without leaving the terminal.
+DboxShim is an advanced, lightweight terminal user interface (TUI) and CLI tool for managing Distrobox instances, written in Go (AI only). It seamlessly handles container lifecycles, project manifests (`.ini`), and system statistics without leaving the terminal.
 
 ## Features
 
 - **Modern Split-Pane TUI**: Built with `tview`, featuring an elegant multi-pane layout (List, Details, and Commands).
-- **Multi-Tab Navigation**: Easily switch between User Instances, Root Instances, and Local Projects using `u`, `r`, `p`, or carousel mode (`Left`/`Right` arrows, `h`/`l`).
+- **Multi-Tab Navigation**: Easily switch between User Instances, Root Instances, and Local Projects using `u`, `r`, `p`, or carousel mode (`←`/`→` or `h`/`l`).
 - **Interactive Container Management**:
   - **Start/Stop**: Toggle container states instantly with `Space`.
   - **Delete**: Safely delete instances using `d` (includes an interactive confirmation modal).
