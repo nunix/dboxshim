@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+"context"
 	"crypto/md5"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+"github.com/89luca89/distrobox/pkg/containermanager"
+	"github.com/89luca89/distrobox/pkg/containermanager/providers"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 	"github.com/spf13/cobra"
@@ -60,30 +63,59 @@ type ProjectFile struct {
 	RepoURL  string
 }
 
-func parseDistroboxList(out string, ttype string, projectNames map[string]bool) []Instance {
+
+
+func shortID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
+}
+
+func getContainers(isRoot bool, projectNames map[string]bool) []Instance {
+	cm, err := providers.NewAutoDetect(isRoot, "sudo", false)
+	if err != nil {
+		return nil
+	}
+	
+	containers, err := cm.ListContainers(context.Background())
+	if err != nil {
+		return nil
+	}
+
 	var rows []Instance
-	lines := strings.Split(out, "\n")
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "ID") || strings.HasPrefix(strings.TrimSpace(line), "WARN") {
+	ttype := "User"
+	if isRoot {
+		ttype = "Root"
+	}
+
+	for _, c := range containers {
+		if !c.IsDistrobox() {
 			continue
 		}
-		parts := strings.Split(line, "|")
-		if len(parts) >= 4 {
-			id := strings.TrimSpace(parts[0])
-			name := strings.TrimSpace(parts[1])
-			rawStatus := strings.TrimSpace(parts[2])
-			statusEmoji := "🔴"
-			if strings.HasPrefix(rawStatus, "Up") {
-				statusEmoji = "🟢"
-			}
-			image := strings.TrimSpace(parts[3])
-			exports := getExportsFast(name, ttype == "Root")
-			isProj := "   "
-			if projectNames[name] {
-				isProj = "✅ "
-			}
-			rows = append(rows, Instance{ttype, id, name, statusEmoji, rawStatus, image, exports, isProj})
+		
+		statusEmoji := "🔴"
+		if c.IsRunning() {
+			statusEmoji = "🟢"
 		}
+		
+		exports := getExportsFast(c.Name, isRoot)
+		
+		isProj := "   "
+		if projectNames[c.Name] {
+			isProj = "✅ "
+		}
+		
+		rows = append(rows, Instance{
+			Type:        ttype,
+			ID:          shortID(c.ID),
+			Name:        c.Name,
+			StatusEmoji: statusEmoji,
+			StatusFull:  c.Status,
+			Image:       c.Image,
+			Exports:     exports,
+			IsProject:   isProj,
+		})
 	}
 	return rows
 }
@@ -437,11 +469,9 @@ func runList() {
 		}
 	}
 
-	out, _ := exec.Command("distrobox", "list", "--no-color").Output()
-	userInstances = parseDistroboxList(string(out), "User", projectNames)
+	userInstances = getContainers(false, projectNames)
 
-	outRoot, _ := exec.Command("distrobox", "list", "--root", "--no-color").Output()
-	rootInstances = parseDistroboxList(string(outRoot), "Root", projectNames)
+	rootInstances = getContainers(true, projectNames)
 
 	var selectedInstance *Instance
 	var selectedAction string
@@ -599,10 +629,8 @@ func runList() {
 					projectNames[name] = true
 				}
 			}
-			out, _ := exec.Command("distrobox", "list", "--no-color").Output()
-			userInstances = parseDistroboxList(string(out), "User", projectNames)
-			outRoot, _ := exec.Command("distrobox", "list", "--root", "--no-color").Output()
-			rootInstances = parseDistroboxList(string(outRoot), "Root", projectNames)
+			userInstances = getContainers(false, projectNames)
+			rootInstances = getContainers(true, projectNames)
 			switchTab(currentTab)
 		}
 
@@ -701,17 +729,15 @@ func runList() {
 						inst := currentInstances[row-1]
 						go func() {
 							if inst.StatusEmoji == "🟢" {
-								args := []string{"stop", "--yes", inst.Name}
-								if inst.Type == "Root" {
-									args = append([]string{"--root"}, args...)
-								}
-								exec.Command("distrobox", args...).Run()
+								cm, _ := providers.NewAutoDetect(inst.Type == "Root", "sudo", false)
+								cm.Stop(context.Background(), []string{inst.Name})
 							} else {
-								args := []string{"enter", "-T", "-n", inst.Name, "--", "true"}
-								if inst.Type == "Root" {
-									args = append([]string{"--root"}, args...)
-								}
-								exec.Command("distrobox", args...).Run()
+								cm, _ := providers.NewAutoDetect(inst.Type == "Root", "sudo", false)
+								cm.Enter(context.Background(), containermanager.EnterOptions{
+									ContainerName: inst.Name,
+									NoTTY: true,
+									CustomCommand: "true",
+								}, nil, nil)
 							}
 							app.QueueUpdateDraw(func() {
 								refreshInstances()
@@ -741,11 +767,8 @@ func runList() {
 									app.SetFocus(waitModal)
 
 									go func() {
-										args := []string{"rm", "-f", inst.Name}
-										if inst.Type == "Root" {
-											args = append([]string{"--root"}, args...)
-										}
-										exec.Command("distrobox", args...).Run()
+										cm, _ := providers.NewAutoDetect(inst.Type == "Root", "sudo", false)
+										cm.Remove(context.Background(), inst.Name, containermanager.RmOptions{Force: true})
 
 										app.QueueUpdateDraw(func() {
 											pages.RemovePage("waitModal")
