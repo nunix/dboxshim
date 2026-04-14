@@ -589,10 +589,10 @@ func runList() {
 				if proj.RepoName == "" {
 					dirPath := filepath.Dir(proj.Path)
 					if _, exists := localNodes[dirPath]; !exists {
-						icon := "🏠  "
+						icon := "    "
 						color := tcell.ColorYellow
 						if strings.HasPrefix(dirPath, os.TempDir()) || strings.HasPrefix(dirPath, "/tmp") || strings.HasPrefix(dirPath, "/home/nunix/mcptemp") {
-							icon = "☁️  "
+							icon = "    "
 							color = tcell.ColorDarkCyan
 						}
 						lNode := tview.NewTreeNode(icon + dirPath + "        ").SetExpanded(true).SetSelectable(true).SetColor(color)
@@ -607,7 +607,7 @@ func runList() {
 				} else {
 					repoKey := proj.RepoName
 					if _, exists := remoteNodes[repoKey]; !exists {
-						rNode := tview.NewTreeNode("🌐  " + repoKey + "        ").SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorDarkCyan)
+						rNode := tview.NewTreeNode("    " + repoKey + "        ").SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorDarkCyan)
 						remoteNodes[repoKey] = rNode
 					}
 					
@@ -631,13 +631,13 @@ func runList() {
 						} else {
 							var childNode *tview.TreeNode
 							for _, child := range curr.GetChildren() {
-								if child.GetText() == "📁  " + part + "        " {
+								if child.GetText() == "    " + part + "        " {
 									childNode = child
 									break
 								}
 							}
 							if childNode == nil {
-								childNode = tview.NewTreeNode("📁  " + part + "        ").SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorBlue)
+								childNode = tview.NewTreeNode("    " + part + "        ").SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorBlue)
 								curr.AddChild(childNode)
 							}
 							curr = childNode
