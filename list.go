@@ -593,7 +593,7 @@ func runList() {
 						color := tcell.ColorYellow
 						var dirDisplay string
 						if strings.HasPrefix(dirPath, os.TempDir()) || strings.HasPrefix(dirPath, "/tmp") || strings.HasPrefix(dirPath, "/home/nunix/mcptemp") {
-							dirDisplay = "☁️" + trimmedDir
+							dirDisplay = "☁" + trimmedDir
 							color = tcell.ColorDarkCyan
 						} else {
 							dirDisplay = "📂" + trimmedDir
