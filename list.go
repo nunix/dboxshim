@@ -295,15 +295,16 @@ func loadProjects() []ProjectFile {
 	return projects
 }
 
-func parseIniFile(filepath string) ([]string, string) {
+func parseIniFile(filepath string) ([]string, string, bool) {
 	file, err := os.Open(filepath)
 	if err != nil {
-		return nil, ""
+		return nil, "", false
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
 	var name string
 	var args []string
+	var isRoot bool
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
@@ -321,6 +322,11 @@ func parseIniFile(filepath string) ([]string, string) {
 				v = v[1 : len(v)-1]
 			}
 			switch k {
+			case "root":
+				if v == "true" || v == "1" || v == "yes" {
+					isRoot = true
+					args = append(args, "--root")
+				}
 			case "image":
 				args = append(args, "--image", v)
 			case "additional_packages":
@@ -338,7 +344,7 @@ func parseIniFile(filepath string) ([]string, string) {
 			}
 		}
 	}
-	return args, name
+	return args, name, isRoot
 }
 
 func fetchGitRepo(urlStr string) ([]ProjectFile, error) {
@@ -472,7 +478,7 @@ func runList() {
 	projectFiles = dedupedProjects
 	projectNames := make(map[string]bool)
 	for _, proj := range projectFiles {
-		_, name := parseIniFile(proj.Path)
+		_, name, _ := parseIniFile(proj.Path)
 		if name != "" {
 			projectNames[name] = true
 		}
@@ -762,7 +768,7 @@ func runList() {
 			projectFiles = dedupedProjects
 			projectNames := make(map[string]bool)
 			for _, proj := range projectFiles {
-				_, name := parseIniFile(proj.Path)
+				_, name, _ := parseIniFile(proj.Path)
 				if name != "" {
 					projectNames[name] = true
 				}
@@ -1200,7 +1206,7 @@ func runList() {
 			fmt.Printf("Error entering distrobox: %s\n", err)
 		}
 	} else if selectedAction == "permanent" && selectedProject != nil {
-		_, name := parseIniFile(selectedProject.Path)
+		_, name, isRoot := parseIniFile(selectedProject.Path)
 		exists := false
 		for _, inst := range userInstances {
 			if inst.Name == name {
@@ -1251,7 +1257,12 @@ func runList() {
 		}
 		if name != "" {
 			fmt.Printf("\033[38;2;48;186;120m✅ Created successfully. Entering %s...\033[0m\n", name)
-			enterCmd := exec.Command("distrobox", "enter", name)
+			var enterCmd *exec.Cmd
+			if isRoot {
+				enterCmd = exec.Command("distrobox", "enter", "--root", name)
+			} else {
+				enterCmd = exec.Command("distrobox", "enter", name)
+			}
 			if info, err := os.Stat(absDir); err == nil && info.IsDir() {
 				enterCmd.Dir = absDir
 			}
@@ -1261,7 +1272,7 @@ func runList() {
 			enterCmd.Run()
 		}
 	} else if selectedAction == "ephemeral" && selectedProject != nil {
-		args, name := parseIniFile(selectedProject.Path)
+		args, name, _ := parseIniFile(selectedProject.Path)
 		if len(args) == 0 {
 			fmt.Println("Error parsing INI file or no parameters found.")
 			return
