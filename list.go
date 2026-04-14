@@ -284,7 +284,7 @@ func loadProjects() []ProjectFile {
 			content, _ := os.ReadFile(path)
 			fullPath, _ := filepath.Abs(path)
 			projects = append(projects, ProjectFile{
-				Name:    "🌐 " + d.Name(),
+				Name:    "🌐" + d.Name(),
 				Path:    fullPath,
 				Content: string(content),
 			})
@@ -411,7 +411,7 @@ func fetchGitRepo(urlStr string) ([]ProjectFile, error) {
 				repoDomainPath = strings.TrimPrefix(repoDomainPath, "ssh://")
 				repoDomainPath = strings.TrimSuffix(repoDomainPath, ".git")
 				projects = append(projects, ProjectFile{
-					Name:     "🌐 " + filepath.Base(line) + " (" + repoDomainPath + ")",
+					Name:     "🌐" + filepath.Base(line) + " (" + repoDomainPath + ")",
 					Path:     fullPath,
 					Content:  string(content),
 					RepoPath: repoPath,
@@ -589,25 +589,25 @@ func runList() {
 				if proj.RepoName == "" {
 					dirPath := filepath.Dir(proj.Path)
 					if _, exists := localNodes[dirPath]; !exists {
-						icon := "📂  "
+						icon := "📂"
 						color := tcell.ColorYellow
 						if strings.HasPrefix(dirPath, os.TempDir()) || strings.HasPrefix(dirPath, "/tmp") || strings.HasPrefix(dirPath, "/home/nunix/mcptemp") {
-							icon = "☁️  "
+							icon = "☁️"
 							color = tcell.ColorDarkCyan
 						}
 						lNode := tview.NewTreeNode(icon + dirPath + "                ").SetExpanded(true).SetSelectable(true).SetColor(color)
 						localNodes[dirPath] = lNode
 					}
 					nameDisplay := proj.Name
-					if !strings.HasPrefix(nameDisplay, "📄 ") && !strings.HasPrefix(nameDisplay, "🌐 ") {
-						nameDisplay = "📄  " + nameDisplay
+					if !strings.HasPrefix(nameDisplay, "📄") && !strings.HasPrefix(nameDisplay, "🌐") {
+						nameDisplay = "📄" + nameDisplay
 					}
 					node := tview.NewTreeNode(nameDisplay + "        ").SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
 					localNodes[dirPath].AddChild(node)
 				} else {
 					repoKey := proj.RepoName
 					if _, exists := remoteNodes[repoKey]; !exists {
-						rNode := tview.NewTreeNode("🌐  " + repoKey + "                ").SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorDarkCyan)
+						rNode := tview.NewTreeNode("🌐" + repoKey + "                ").SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorDarkCyan)
 						remoteNodes[repoKey] = rNode
 					}
 					
@@ -626,18 +626,18 @@ func runList() {
 					curr := remoteNodes[repoKey]
 					for j, part := range parts {
 						if j == len(parts)-1 {
-							node := tview.NewTreeNode("📄  " + part + "        ").SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
+							node := tview.NewTreeNode("📄" + part + "        ").SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
 							curr.AddChild(node)
 						} else {
 							var childNode *tview.TreeNode
 							for _, child := range curr.GetChildren() {
-								if child.GetText() == "📁  " + part + "                " {
+								if child.GetText() == "📁" + part + "                " {
 									childNode = child
 									break
 								}
 							}
 							if childNode == nil {
-								childNode = tview.NewTreeNode("📁  " + part + "                ").SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorBlue)
+								childNode = tview.NewTreeNode("📁" + part + "                ").SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorBlue)
 								curr.AddChild(childNode)
 							}
 							curr = childNode
@@ -697,7 +697,7 @@ func runList() {
 			ref := node.GetReference()
 			if ref != nil {
 				proj := ref.(*ProjectFile)
-				detailsBox.SetText(fmt.Sprintf("[green::b]📄 %s[-::-]\n\n[white]%s", proj.Name, proj.Content))
+				detailsBox.SetText(fmt.Sprintf("[green::b]📄%s[-::-]\n\n[white]%s", proj.Name, proj.Content))
 			} else {
 				detailsBox.SetText("")
 			}
@@ -1090,7 +1090,7 @@ func runList() {
 											tempPath := filepath.Join(os.TempDir(), "dboxshim", "inis", fileName)
 											os.WriteFile(tempPath, []byte(content), 0644)
 											remoteProject := ProjectFile{
-												Name:    "🌐 " + fileName,
+												Name:    "🌐" + fileName,
 												Path:    tempPath,
 												Content: content,
 												RepoName: "Remote Files",
