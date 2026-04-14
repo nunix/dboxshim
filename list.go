@@ -519,7 +519,7 @@ func runList() {
 			SetFixed(1, 0)
 
 		tree := tview.NewTreeView().SetTopLevel(1)
-		tree.SetBorder(true).SetTitle(" 📂 Project Files (*.ini) ").SetTitleColor(tcell.ColorForestGreen)
+		tree.SetBorder(true).SetTitle("📂Project Files (*.ini)").SetTitleColor(tcell.ColorForestGreen)
 
 		leftPages := tview.NewPages()
 		leftPages.AddPage("table", table, true, true)
@@ -595,19 +595,19 @@ func runList() {
 							icon = "☁️"
 							color = tcell.ColorDarkCyan
 						}
-						lNode := tview.NewTreeNode(icon + dirPath + "                ").SetExpanded(true).SetSelectable(true).SetColor(color)
+						lNode := tview.NewTreeNode(icon + dirPath).SetExpanded(true).SetSelectable(true).SetColor(color)
 						localNodes[dirPath] = lNode
 					}
 					nameDisplay := proj.Name
 					if !strings.HasPrefix(nameDisplay, "📄") && !strings.HasPrefix(nameDisplay, "🌐") {
 						nameDisplay = "📄" + nameDisplay
 					}
-					node := tview.NewTreeNode(nameDisplay + "        ").SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
+					node := tview.NewTreeNode(nameDisplay).SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
 					localNodes[dirPath].AddChild(node)
 				} else {
 					repoKey := proj.RepoName
 					if _, exists := remoteNodes[repoKey]; !exists {
-						rNode := tview.NewTreeNode("🌐" + repoKey + "                ").SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorDarkCyan)
+						rNode := tview.NewTreeNode("🌐" + repoKey).SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorDarkCyan)
 						remoteNodes[repoKey] = rNode
 					}
 					
@@ -626,18 +626,18 @@ func runList() {
 					curr := remoteNodes[repoKey]
 					for j, part := range parts {
 						if j == len(parts)-1 {
-							node := tview.NewTreeNode("📄" + part + "        ").SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
+							node := tview.NewTreeNode("📄" + part).SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
 							curr.AddChild(node)
 						} else {
 							var childNode *tview.TreeNode
 							for _, child := range curr.GetChildren() {
-								if child.GetText() == "📁" + part + "                " {
+								if child.GetText() == "📁" + part {
 									childNode = child
 									break
 								}
 							}
 							if childNode == nil {
-								childNode = tview.NewTreeNode("📁" + part + "                ").SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorBlue)
+								childNode = tview.NewTreeNode("📁" + part).SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorBlue)
 								curr.AddChild(childNode)
 							}
 							curr = childNode
@@ -1022,7 +1022,7 @@ func runList() {
 							loadingText := tview.NewTextView().
 								SetTextAlign(tview.AlignCenter).
 								SetDynamicColors(true)
-							loadingText.SetBorder(true).SetTitle(" 🌐 Fetching Connection ").SetTitleColor(tcell.ColorForestGreen)
+							loadingText.SetBorder(true).SetTitle("🌐Fetching Connection").SetTitleColor(tcell.ColorForestGreen)
 
 							loadingModal := tview.NewFlex().
 								AddItem(nil, 0, 1, false).
