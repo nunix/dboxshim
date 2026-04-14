@@ -269,12 +269,21 @@ func loadProjects() []ProjectFile {
 
 	// Also load remote projects from temp directory
 	tempBaseDir := filepath.Join(os.TempDir(), "dboxshim")
-	filepath.Walk(tempBaseDir, func(path string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() && strings.HasSuffix(info.Name(), ".ini") {
+	filepath.WalkDir(tempBaseDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".ini") {
 			content, _ := os.ReadFile(path)
 			fullPath, _ := filepath.Abs(path)
 			projects = append(projects, ProjectFile{
-				Name:    "🌐 " + filepath.Base(path),
+				Name:    "🌐 " + d.Name(),
 				Path:    fullPath,
 				Content: string(content),
 			})
@@ -465,6 +474,11 @@ func runList() {
 		if name != "" {
 			projectNames[name] = true
 		}
+		
+		fileName := filepath.Base(proj.Path)
+		if strings.HasSuffix(fileName, ".ini") {
+			projectNames[strings.TrimSuffix(fileName, ".ini")] = true
+		}
 	}
 
 	out, _ := exec.Command("distrobox", "list", "--no-color").Output()
@@ -641,6 +655,11 @@ func runList() {
 				_, name := parseIniFile(proj.Path)
 				if name != "" {
 					projectNames[name] = true
+				}
+				
+				fileName := filepath.Base(proj.Path)
+				if strings.HasSuffix(fileName, ".ini") {
+					projectNames[strings.TrimSuffix(fileName, ".ini")] = true
 				}
 			}
 			out, _ := exec.Command("distrobox", "list", "--no-color").Output()
