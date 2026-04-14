@@ -58,6 +58,7 @@ type ProjectFile struct {
 	Content  string
 	RepoPath string
 	RepoURL  string
+	RepoName string
 }
 
 func parseDistroboxList(out string, ttype string, projectNames map[string]bool) []Instance {
@@ -353,9 +354,9 @@ func fetchGitRepo(urlStr string) ([]ProjectFile, error) {
 	parsedURL, err := url.Parse(parseUrl)
 	if err == nil && parsedURL.Host != "" {
 		cleanPath := strings.TrimSuffix(parsedURL.Path, ".git")
-		repoPath = filepath.Join(os.TempDir(), "dboxshim", "repos", parsedURL.Host, cleanPath)
+		repoPath = filepath.Join(os.TempDir(), "dboxshim", "repos", strings.ToLower(parsedURL.Host), strings.ToLower(cleanPath))
 	} else {
-		hash := fmt.Sprintf("%x", md5.Sum([]byte(urlStr)))
+		hash := fmt.Sprintf("%x", md5.Sum([]byte(strings.ToLower(urlStr))))
 		repoPath = filepath.Join(os.TempDir(), "dboxshim", "repos", hash)
 	}
 
@@ -415,6 +416,7 @@ func fetchGitRepo(urlStr string) ([]ProjectFile, error) {
 					Content:  string(content),
 					RepoPath: repoPath,
 					RepoURL:  urlStr,
+					RepoName: repoDomainPath,
 				})
 			}
 		}
@@ -516,6 +518,13 @@ func runList() {
 			SetSelectable(true, false).
 			SetFixed(1, 0)
 
+		tree := tview.NewTreeView()
+		tree.SetBorder(true).SetTitle(" 📂 Project Files (*.ini) ").SetTitleColor(tcell.ColorForestGreen)
+
+		leftPages := tview.NewPages()
+		leftPages.AddPage("table", table, true, true)
+		leftPages.AddPage("tree", tree, true, false)
+
 		table.SetSelectedStyle(tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite))
 		table.SetBorder(true).SetTitle(" 📦 Distrobox Instances ").SetTitleColor(tcell.ColorForestGreen)
 
@@ -555,54 +564,99 @@ func runList() {
 		currentTab := "user"
 		var currentInstances []Instance
 
-		updateDetails := func(row int) {
+				updateDetails := func(row int) {
 			detailsBox.Clear()
 			if currentTab == "projects" {
-				if row < 1 || row > len(projectFiles) {
-					return
+				// Handled by tree selection changed
+				return
+			}
+			if row < 1 || row > len(currentInstances) {
+				return
+			}
+			inst := currentInstances[row-1]
+			detailsBox.SetText(getDetailText(inst))
+		}
+
+				drawTree := func() {
+			root := tview.NewTreeNode("Projects").SetExpanded(true)
+			tree.SetRoot(root).SetCurrentNode(root)
+			
+			localNode := tview.NewTreeNode("🏠 Local Workspace").SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorYellow)
+			remoteNodes := make(map[string]*tview.TreeNode)
+			
+			for i := range projectFiles {
+				proj := &projectFiles[i]
+				if proj.RepoName == "" {
+					node := tview.NewTreeNode("📄 " + proj.Name).SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
+					localNode.AddChild(node)
+				} else {
+					repoKey := proj.RepoName
+					if _, exists := remoteNodes[repoKey]; !exists {
+						rNode := tview.NewTreeNode("🌐 " + repoKey).SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorDarkCyan)
+						remoteNodes[repoKey] = rNode
+					}
+					
+					var relPath string
+					if proj.RepoPath != "" {
+						var err error
+						relPath, err = filepath.Rel(proj.RepoPath, proj.Path)
+						if err != nil || relPath == "." {
+							relPath = filepath.Base(proj.Path)
+						}
+					} else {
+						relPath = filepath.Base(proj.Path)
+					}
+					
+					parts := strings.Split(relPath, string(filepath.Separator))
+					curr := remoteNodes[repoKey]
+					for j, part := range parts {
+						if j == len(parts)-1 {
+							node := tview.NewTreeNode("📄 " + part).SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
+							curr.AddChild(node)
+						} else {
+							var childNode *tview.TreeNode
+							for _, child := range curr.GetChildren() {
+								if child.GetText() == "📁 " + part {
+									childNode = child
+									break
+								}
+							}
+							if childNode == nil {
+								childNode = tview.NewTreeNode("📁 " + part).SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorBlue)
+								curr.AddChild(childNode)
+							}
+							curr = childNode
+						}
+					}
 				}
-				proj := projectFiles[row-1]
-				detailsBox.SetText(fmt.Sprintf("[green::b]📄 %s[-::-]\n\n[white]%s", proj.Name, proj.Content))
-			} else {
-				if row < 1 || row > len(currentInstances) {
-					return
-				}
-				inst := currentInstances[row-1]
-				detailsBox.SetText(getDetailText(inst))
+			}
+			
+			if len(localNode.GetChildren()) > 0 {
+				root.AddChild(localNode)
+			}
+			for _, rNode := range remoteNodes {
+				root.AddChild(rNode)
 			}
 		}
 
 		drawTable := func() {
 			table.Clear()
-			if currentTab == "projects" {
-				table.SetTitle(" 📂 Project Files (*.ini) ")
-				table.SetCell(0, 0, tview.NewTableCell("File Name").SetExpansion(1).SetTextColor(tcell.ColorGreen).SetSelectable(false).SetAlign(tview.AlignLeft))
-				if len(projectFiles) == 0 {
-					table.SetCell(1, 0, tview.NewTableCell("No .ini files found in current path.").SetTextColor(tcell.ColorGray).SetSelectable(false))
-					detailsBox.SetText("")
-					return
-				}
-				for row, proj := range projectFiles {
-					table.SetCell(row+1, 0, tview.NewTableCell(proj.Name).SetTextColor(tcell.ColorYellow).SetExpansion(1))
-				}
-			} else {
-				table.SetTitle(" 📦 Distrobox Instances ")
-				headers := []string{"ID", "Name", "Project", "Status", "Exports"}
-				for col, header := range headers {
-					table.SetCell(0, col, tview.NewTableCell(header).SetExpansion(1).SetTextColor(tcell.ColorGreen).SetSelectable(false).SetAlign(tview.AlignLeft))
-				}
-				if len(currentInstances) == 0 {
-					table.SetCell(1, 0, tview.NewTableCell("No instances found.").SetTextColor(tcell.ColorGray).SetSelectable(false))
-					detailsBox.SetText("")
-					return
-				}
-				for row, inst := range currentInstances {
-					table.SetCell(row+1, 0, tview.NewTableCell(inst.ID).SetTextColor(tcell.ColorWhite).SetExpansion(1))
-					table.SetCell(row+1, 1, tview.NewTableCell(inst.Name).SetTextColor(tcell.ColorYellow).SetExpansion(1))
-					table.SetCell(row+1, 2, tview.NewTableCell(inst.IsProject).SetTextColor(tcell.ColorWhite).SetExpansion(1))
-					table.SetCell(row+1, 3, tview.NewTableCell(inst.StatusEmoji).SetTextColor(tcell.ColorLightBlue).SetExpansion(1))
-					table.SetCell(row+1, 4, tview.NewTableCell(inst.Exports).SetTextColor(tcell.ColorWhite).SetExpansion(1))
-				}
+			table.SetTitle(" 📦 Distrobox Instances ")
+			headers := []string{"ID", "Name", "Project", "Status", "Exports"}
+			for col, header := range headers {
+				table.SetCell(0, col, tview.NewTableCell(header).SetExpansion(1).SetTextColor(tcell.ColorGreen).SetSelectable(false).SetAlign(tview.AlignLeft))
+			}
+			if len(currentInstances) == 0 {
+				table.SetCell(1, 0, tview.NewTableCell("No instances found.").SetTextColor(tcell.ColorGray).SetSelectable(false))
+				detailsBox.SetText("")
+				return
+			}
+			for row, inst := range currentInstances {
+				table.SetCell(row+1, 0, tview.NewTableCell(inst.ID).SetTextColor(tcell.ColorWhite).SetExpansion(1))
+				table.SetCell(row+1, 1, tview.NewTableCell(inst.Name).SetTextColor(tcell.ColorYellow).SetExpansion(1))
+				table.SetCell(row+1, 2, tview.NewTableCell(inst.IsProject).SetTextColor(tcell.ColorWhite).SetExpansion(1))
+				table.SetCell(row+1, 3, tview.NewTableCell(inst.StatusEmoji).SetTextColor(tcell.ColorLightBlue).SetExpansion(1))
+				table.SetCell(row+1, 4, tview.NewTableCell(inst.Exports).SetTextColor(tcell.ColorWhite).SetExpansion(1))
 			}
 			table.Select(1, 0)
 			updateDetails(1)
@@ -623,15 +677,47 @@ func runList() {
 			tabs.SetText(fmt.Sprintf(`["user"]%s  User Instances (u)  [-:-][""]    ["root"]%s  Root Instances (r)  [-:-][""]    ["projects"]%s  Projects (p)  [-:-][""]`, userStyle, rootStyle, projStyle))
 		}
 
-		switchTab = func(tab string) {
+		
+		tree.SetChangedFunc(func(node *tview.TreeNode) {
+			ref := node.GetReference()
+			if ref != nil {
+				proj := ref.(*ProjectFile)
+				detailsBox.SetText(fmt.Sprintf("[green::b]📄 %s[-::-]\n\n[white]%s", proj.Name, proj.Content))
+			} else {
+				detailsBox.SetText("")
+			}
+		})
+		
+		var modal *tview.Modal
+		tree.SetSelectedFunc(func(node *tview.TreeNode) {
+			ref := node.GetReference()
+			if ref != nil {
+				selectedProject = ref.(*ProjectFile)
+				pages.ShowPage("modal")
+				app.SetFocus(modal)
+			} else {
+				node.SetExpanded(!node.IsExpanded())
+			}
+		})
+
+				switchTab = func(tab string) {
 			currentTab = tab
 			if tab == "user" {
 				currentInstances = userInstances
+				leftPages.SwitchToPage("table")
+				app.SetFocus(table)
+				drawTable()
 			} else if tab == "root" {
 				currentInstances = rootInstances
+				leftPages.SwitchToPage("table")
+				app.SetFocus(table)
+				drawTable()
+			} else if tab == "projects" {
+				leftPages.SwitchToPage("tree")
+				app.SetFocus(tree)
+				drawTree()
 			}
 			drawTabs()
-			drawTable()
 		}
 		refreshInstances := func() {
 			projectFiles = loadProjects()
@@ -679,7 +765,9 @@ func runList() {
 			updateDetails(row)
 		})
 
-		modal := tview.NewModal().
+		
+
+		modal = tview.NewModal().
 			SetText("Create Instance from INI").
 			AddButtons([]string{"Permanent", "Ephemeral", "Cancel"}).
 			SetDoneFunc(func(buttonIndex int, buttonLabel string) {
@@ -725,7 +813,7 @@ func runList() {
 		})
 
 		contentFlex := tview.NewFlex().
-			AddItem(table, 0, 2, true).
+			AddItem(leftPages, 0, 2, true).
 			AddItem(rightFlex, 0, 1, false)
 
 		dbV, rtV := getVersions()
@@ -836,15 +924,18 @@ func runList() {
 				if event.Key() == tcell.KeyUp || event.Key() == tcell.KeyDown || event.Key() == tcell.KeyPgUp || event.Key() == tcell.KeyPgDn || event.Rune() == 'j' || event.Rune() == 'k' {
 					return nil
 				}
-			} else if currentTab == "projects" && len(projectFiles) == 0 {
-				if event.Key() == tcell.KeyUp || event.Key() == tcell.KeyDown || event.Key() == tcell.KeyPgUp || event.Key() == tcell.KeyPgDn || event.Rune() == 'j' || event.Rune() == 'k' {
-					return nil
-				}
+
 			} else {
-				limit := len(currentInstances)
 				if currentTab == "projects" {
-					limit = len(projectFiles)
+					// Let tree handle its own vim navigation
+					if event.Rune() == 'j' {
+						return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
+					} else if event.Rune() == 'k' {
+						return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone)
+					}
+					return event
 				}
+				limit := len(currentInstances)
 				if event.Key() == tcell.KeyUp || event.Rune() == 'k' {
 					row, _ := table.GetSelection()
 					if row <= 1 {
@@ -981,6 +1072,7 @@ func runList() {
 												Name:    "🌐 " + fileName,
 												Path:    tempPath,
 												Content: content,
+												RepoName: "Remote Files",
 											}
 											remoteProjects = append(remoteProjects, remoteProject)
 											refreshInstances()
