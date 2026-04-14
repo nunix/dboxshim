@@ -581,14 +581,29 @@ func runList() {
 			root := tview.NewTreeNode("Projects").SetExpanded(true)
 			tree.SetRoot(root).SetCurrentNode(root)
 			
-			localNode := tview.NewTreeNode("🏠 Local Workspace").SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorYellow)
+			localNodes := make(map[string]*tview.TreeNode)
 			remoteNodes := make(map[string]*tview.TreeNode)
 			
 			for i := range projectFiles {
 				proj := &projectFiles[i]
 				if proj.RepoName == "" {
-					node := tview.NewTreeNode("📄 " + proj.Name).SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
-					localNode.AddChild(node)
+					dirPath := filepath.Dir(proj.Path)
+					if _, exists := localNodes[dirPath]; !exists {
+						icon := "🏠 "
+						color := tcell.ColorYellow
+						if strings.HasPrefix(dirPath, os.TempDir()) || strings.HasPrefix(dirPath, "/tmp") || strings.HasPrefix(dirPath, "/home/nunix/mcptemp") {
+							icon = "☁️ "
+							color = tcell.ColorDarkCyan
+						}
+						lNode := tview.NewTreeNode(icon + dirPath).SetExpanded(true).SetSelectable(true).SetColor(color)
+						localNodes[dirPath] = lNode
+					}
+					nameDisplay := proj.Name
+					if !strings.HasPrefix(nameDisplay, "📄 ") && !strings.HasPrefix(nameDisplay, "🌐 ") {
+						nameDisplay = "📄 " + nameDisplay
+					}
+					node := tview.NewTreeNode(nameDisplay).SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
+					localNodes[dirPath].AddChild(node)
 				} else {
 					repoKey := proj.RepoName
 					if _, exists := remoteNodes[repoKey]; !exists {
@@ -631,8 +646,8 @@ func runList() {
 				}
 			}
 			
-			if len(localNode.GetChildren()) > 0 {
-				root.AddChild(localNode)
+			for _, lNode := range localNodes {
+				root.AddChild(lNode)
 			}
 			for _, rNode := range remoteNodes {
 				root.AddChild(rNode)
