@@ -593,12 +593,12 @@ func runList() {
 						color := tcell.ColorYellow
 						if strings.HasPrefix(dirPath, os.TempDir()) || strings.HasPrefix(dirPath, "/tmp") || strings.HasPrefix(dirPath, "/home/nunix/mcptemp") {
 							if !strings.HasPrefix(dirDisplay, "☁️") {
-								dirDisplay = "☁️" + dirDisplay
+								dirDisplay = "☁️" + strings.ReplaceAll(dirDisplay, " ", "")
 							}
 							color = tcell.ColorDarkCyan
 						} else {
 							if !strings.HasPrefix(dirDisplay, "📂") {
-								dirDisplay = "📂" + dirDisplay
+								dirDisplay = "📂" + strings.ReplaceAll(dirDisplay, " ", "")
 							}
 						}
 						lNode := tview.NewTreeNode(dirDisplay).SetExpanded(true).SetSelectable(true).SetColor(color)
@@ -606,7 +606,7 @@ func runList() {
 					}
 					nameDisplay := proj.Name
 					if !strings.HasPrefix(nameDisplay, "📄") && !strings.HasPrefix(nameDisplay, "🌐") {
-						nameDisplay = "📄" + nameDisplay
+						nameDisplay = "📄" + strings.ReplaceAll(nameDisplay, " ", "")
 					}
 					node := tview.NewTreeNode(nameDisplay).SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
 					localNodes[dirPath].AddChild(node)
@@ -615,7 +615,7 @@ func runList() {
 					if _, exists := remoteNodes[repoKey]; !exists {
 						repoDisplay := repoKey
 						if !strings.HasPrefix(repoDisplay, "🌐") {
-							repoDisplay = "🌐" + repoDisplay
+							repoDisplay = "🌐" + strings.ReplaceAll(repoDisplay, " ", "")
 						}
 						rNode := tview.NewTreeNode(repoDisplay).SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorDarkCyan)
 						remoteNodes[repoKey] = rNode
@@ -638,7 +638,7 @@ func runList() {
 						if j == len(parts)-1 {
 							partDisplay := part
 							if !strings.HasPrefix(partDisplay, "📄") {
-								partDisplay = "📄" + partDisplay
+								partDisplay = "📄" + strings.ReplaceAll(partDisplay, " ", "")
 							}
 							node := tview.NewTreeNode(partDisplay).SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
 							curr.AddChild(node)
@@ -646,7 +646,7 @@ func runList() {
 							var childNode *tview.TreeNode
 							partDisplay := part
 							if !strings.HasPrefix(partDisplay, "📁") {
-								partDisplay = "📁" + partDisplay
+								partDisplay = "📁" + strings.ReplaceAll(partDisplay, " ", "")
 							}
 							for _, child := range curr.GetChildren() {
 								if child.GetText() == partDisplay {
