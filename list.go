@@ -589,13 +589,19 @@ func runList() {
 				if proj.RepoName == "" {
 					dirPath := filepath.Dir(proj.Path)
 					if _, exists := localNodes[dirPath]; !exists {
-						icon := "📂"
+						dirDisplay := dirPath
 						color := tcell.ColorYellow
 						if strings.HasPrefix(dirPath, os.TempDir()) || strings.HasPrefix(dirPath, "/tmp") || strings.HasPrefix(dirPath, "/home/nunix/mcptemp") {
-							icon = "☁️"
+							if !strings.HasPrefix(dirDisplay, "☁️") {
+								dirDisplay = "☁️" + dirDisplay
+							}
 							color = tcell.ColorDarkCyan
+						} else {
+							if !strings.HasPrefix(dirDisplay, "📂") {
+								dirDisplay = "📂" + dirDisplay
+							}
 						}
-						lNode := tview.NewTreeNode(icon + dirPath).SetExpanded(true).SetSelectable(true).SetColor(color)
+						lNode := tview.NewTreeNode(dirDisplay).SetExpanded(true).SetSelectable(true).SetColor(color)
 						localNodes[dirPath] = lNode
 					}
 					nameDisplay := proj.Name
@@ -607,7 +613,11 @@ func runList() {
 				} else {
 					repoKey := proj.RepoName
 					if _, exists := remoteNodes[repoKey]; !exists {
-						rNode := tview.NewTreeNode("🌐" + repoKey).SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorDarkCyan)
+						repoDisplay := repoKey
+						if !strings.HasPrefix(repoDisplay, "🌐") {
+							repoDisplay = "🌐" + repoDisplay
+						}
+						rNode := tview.NewTreeNode(repoDisplay).SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorDarkCyan)
 						remoteNodes[repoKey] = rNode
 					}
 					
@@ -626,18 +636,26 @@ func runList() {
 					curr := remoteNodes[repoKey]
 					for j, part := range parts {
 						if j == len(parts)-1 {
-							node := tview.NewTreeNode("📄" + part).SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
+							partDisplay := part
+							if !strings.HasPrefix(partDisplay, "📄") {
+								partDisplay = "📄" + partDisplay
+							}
+							node := tview.NewTreeNode(partDisplay).SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
 							curr.AddChild(node)
 						} else {
 							var childNode *tview.TreeNode
+							partDisplay := part
+							if !strings.HasPrefix(partDisplay, "📁") {
+								partDisplay = "📁" + partDisplay
+							}
 							for _, child := range curr.GetChildren() {
-								if child.GetText() == "📁" + part {
+								if child.GetText() == partDisplay {
 									childNode = child
 									break
 								}
 							}
 							if childNode == nil {
-								childNode = tview.NewTreeNode("📁" + part).SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorBlue)
+								childNode = tview.NewTreeNode(partDisplay).SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorBlue)
 								curr.AddChild(childNode)
 							}
 							curr = childNode
