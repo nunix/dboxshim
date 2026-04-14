@@ -878,13 +878,13 @@ func runList() {
 							if inst.StatusEmoji == "🟢" {
 								args := []string{"stop", "--yes", inst.Name}
 								if inst.Type == "Root" {
-									args = append([]string{"--root"}, args...)
+									args = append([]string{args[0], "--root"}, args[1:]...)
 								}
 								exec.Command("distrobox", args...).Run()
 							} else {
 								args := []string{"enter", "-T", "-n", inst.Name, "--", "true"}
 								if inst.Type == "Root" {
-									args = append([]string{"--root"}, args...)
+									args = append([]string{args[0], "--root"}, args[1:]...)
 								}
 								exec.Command("distrobox", args...).Run()
 							}
@@ -923,7 +923,7 @@ func runList() {
 									go func() {
 										args := []string{"rm", "-f", inst.Name}
 										if inst.Type == "Root" {
-											args = append([]string{"--root"}, args...)
+											args = append([]string{args[0], "--root"}, args[1:]...)
 										}
 										exec.Command("distrobox", args...).Run()
 
@@ -1186,7 +1186,7 @@ func runList() {
 		crumbleEffect()
 		args := []string{"enter", selectedInstance.Name}
 		if selectedInstance.Type == "Root" {
-			args = append([]string{"--root"}, args...)
+			args = append([]string{args[0], "--root"}, args[1:]...)
 		}
 		cmd := exec.Command("distrobox", args...)
 		absDir, _ := filepath.Abs(selectedInstance.Name)
