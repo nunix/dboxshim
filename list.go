@@ -589,34 +589,30 @@ func runList() {
 				if proj.RepoName == "" {
 					dirPath := filepath.Dir(proj.Path)
 					if _, exists := localNodes[dirPath]; !exists {
-						dirDisplay := dirPath
+						trimmedDir := strings.ReplaceAll(dirPath, " ", "")
 						color := tcell.ColorYellow
+						var dirDisplay string
 						if strings.HasPrefix(dirPath, os.TempDir()) || strings.HasPrefix(dirPath, "/tmp") || strings.HasPrefix(dirPath, "/home/nunix/mcptemp") {
-							if !strings.HasPrefix(dirDisplay, "☁️") {
-								dirDisplay = "☁️" + strings.ReplaceAll(dirDisplay, " ", "")
-							}
+							dirDisplay = "☁️" + trimmedDir
 							color = tcell.ColorDarkCyan
 						} else {
-							if !strings.HasPrefix(dirDisplay, "📂") {
-								dirDisplay = "📂" + strings.ReplaceAll(dirDisplay, " ", "")
-							}
+							dirDisplay = "📂" + trimmedDir
 						}
 						lNode := tview.NewTreeNode(dirDisplay).SetExpanded(true).SetSelectable(true).SetColor(color)
 						localNodes[dirPath] = lNode
 					}
-					nameDisplay := proj.Name
-					if !strings.HasPrefix(nameDisplay, "📄") && !strings.HasPrefix(nameDisplay, "🌐") {
-						nameDisplay = "📄" + strings.ReplaceAll(nameDisplay, " ", "")
+					trimmedName := strings.ReplaceAll(proj.Name, " ", "")
+					nameDisplay := trimmedName
+					if !strings.HasPrefix(trimmedName, "📄") && !strings.HasPrefix(trimmedName, "🌐") {
+						nameDisplay = "📄" + trimmedName
 					}
 					node := tview.NewTreeNode(nameDisplay).SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
 					localNodes[dirPath].AddChild(node)
 				} else {
 					repoKey := proj.RepoName
 					if _, exists := remoteNodes[repoKey]; !exists {
-						repoDisplay := repoKey
-						if !strings.HasPrefix(repoDisplay, "🌐") {
-							repoDisplay = "🌐" + strings.ReplaceAll(repoDisplay, " ", "")
-						}
+						trimmedRepo := strings.ReplaceAll(repoKey, " ", "")
+						repoDisplay := "🌐" + trimmedRepo
 						rNode := tview.NewTreeNode(repoDisplay).SetExpanded(true).SetSelectable(true).SetColor(tcell.ColorDarkCyan)
 						remoteNodes[repoKey] = rNode
 					}
@@ -635,19 +631,14 @@ func runList() {
 					parts := strings.Split(relPath, string(filepath.Separator))
 					curr := remoteNodes[repoKey]
 					for j, part := range parts {
+						trimmedPart := strings.ReplaceAll(part, " ", "")
 						if j == len(parts)-1 {
-							partDisplay := part
-							if !strings.HasPrefix(partDisplay, "📄") {
-								partDisplay = "📄" + strings.ReplaceAll(partDisplay, " ", "")
-							}
+							partDisplay := "📄" + trimmedPart
 							node := tview.NewTreeNode(partDisplay).SetReference(proj).SetSelectable(true).SetColor(tcell.ColorWhite)
 							curr.AddChild(node)
 						} else {
 							var childNode *tview.TreeNode
-							partDisplay := part
-							if !strings.HasPrefix(partDisplay, "📁") {
-								partDisplay = "📁" + strings.ReplaceAll(partDisplay, " ", "")
-							}
+							partDisplay := "📁" + trimmedPart
 							for _, child := range curr.GetChildren() {
 								if child.GetText() == partDisplay {
 									childNode = child
