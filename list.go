@@ -784,14 +784,14 @@ func runList() {
 				}
 				if event.Key() == tcell.KeyUp || event.Rune() == 'k' {
 					row, _ := table.GetSelection()
-					if row == 1 {
+					if row <= 1 {
 						table.Select(limit, 0)
 						return nil
 					}
 				}
 				if event.Key() == tcell.KeyDown || event.Rune() == 'j' {
 					row, _ := table.GetSelection()
-					if row == limit {
+					if row >= limit {
 						table.Select(1, 0)
 						return nil
 					}
