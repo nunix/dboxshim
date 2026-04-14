@@ -266,6 +266,22 @@ func loadProjects() []ProjectFile {
 			}
 		}
 	}
+
+	// Also load remote projects from temp directory
+	tempBaseDir := filepath.Join(os.TempDir(), "dboxshim")
+	filepath.Walk(tempBaseDir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.HasSuffix(info.Name(), ".ini") {
+			content, _ := os.ReadFile(path)
+			fullPath, _ := filepath.Abs(path)
+			projects = append(projects, ProjectFile{
+				Name:    "🌐 " + filepath.Base(path),
+				Path:    fullPath,
+				Content: string(content),
+			})
+		}
+		return nil
+	})
+
 	return projects
 }
 
@@ -428,7 +444,21 @@ func runList() {
 	var remoteProjects []ProjectFile
 
 	projectFiles = loadProjects()
-	projectFiles = append(projectFiles, remoteProjects...)
+	seenPaths := make(map[string]bool)
+	var dedupedProjects []ProjectFile
+	for _, p := range projectFiles {
+		if !seenPaths[p.Path] {
+			seenPaths[p.Path] = true
+			dedupedProjects = append(dedupedProjects, p)
+		}
+	}
+	for _, p := range remoteProjects {
+		if !seenPaths[p.Path] {
+			seenPaths[p.Path] = true
+			dedupedProjects = append(dedupedProjects, p)
+		}
+	}
+	projectFiles = dedupedProjects
 	projectNames := make(map[string]bool)
 	for _, proj := range projectFiles {
 		_, name := parseIniFile(proj.Path)
@@ -591,7 +621,21 @@ func runList() {
 		}
 		refreshInstances := func() {
 			projectFiles = loadProjects()
-			projectFiles = append(projectFiles, remoteProjects...)
+			seenPaths := make(map[string]bool)
+			var dedupedProjects []ProjectFile
+			for _, p := range projectFiles {
+				if !seenPaths[p.Path] {
+					seenPaths[p.Path] = true
+					dedupedProjects = append(dedupedProjects, p)
+				}
+			}
+			for _, p := range remoteProjects {
+				if !seenPaths[p.Path] {
+					seenPaths[p.Path] = true
+					dedupedProjects = append(dedupedProjects, p)
+				}
+			}
+			projectFiles = dedupedProjects
 			projectNames := make(map[string]bool)
 			for _, proj := range projectFiles {
 				_, name := parseIniFile(proj.Path)
@@ -911,7 +955,8 @@ func runList() {
 									app.QueueUpdateDraw(func() {
 										pages.RemovePage("loadingModal")
 										if err == nil {
-											tempPath := filepath.Join(os.TempDir(), fileName)
+											os.MkdirAll(filepath.Join(os.TempDir(), "dboxshim", "inis"), 0755)
+											tempPath := filepath.Join(os.TempDir(), "dboxshim", "inis", fileName)
 											os.WriteFile(tempPath, []byte(content), 0644)
 											remoteProject := ProjectFile{
 												Name:    "🌐 " + fileName,
