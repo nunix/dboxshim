@@ -592,7 +592,7 @@ func runList() {
 						icon := "📂"
 						color := tcell.ColorYellow
 						if strings.HasPrefix(dirPath, os.TempDir()) || strings.HasPrefix(dirPath, "/tmp") || strings.HasPrefix(dirPath, "/home/nunix/mcptemp") {
-							icon = "☁️"
+							icon = "☁"
 							color = tcell.ColorDarkCyan
 						}
 						lNode := tview.NewTreeNode(icon + dirPath).SetExpanded(true).SetSelectable(true).SetColor(color)
