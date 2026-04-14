@@ -518,7 +518,7 @@ func runList() {
 			SetSelectable(true, false).
 			SetFixed(1, 0)
 
-		tree := tview.NewTreeView()
+		tree := tview.NewTreeView().SetTopLevel(1)
 		tree.SetBorder(true).SetTitle(" 📂 Project Files (*.ini) ").SetTitleColor(tcell.ColorForestGreen)
 
 		leftPages := tview.NewPages()
@@ -869,6 +869,11 @@ func runList() {
 							})
 						}()
 					}
+				} else if currentTab == "projects" {
+					node := tree.GetCurrentNode()
+					if node != nil && node.GetReference() == nil {
+						node.SetExpanded(!node.IsExpanded())
+					}
 				}
 				return nil
 			}
@@ -933,21 +938,22 @@ func runList() {
 					} else if event.Rune() == 'k' {
 						return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone)
 					}
-					return event
-				}
-				limit := len(currentInstances)
-				if event.Key() == tcell.KeyUp || event.Rune() == 'k' {
-					row, _ := table.GetSelection()
-					if row <= 1 {
-						table.Select(limit, 0)
-						return nil
+					// Do not return here to let it fall through to global handlers
+				} else {
+					limit := len(currentInstances)
+					if event.Key() == tcell.KeyUp || event.Rune() == 'k' {
+						row, _ := table.GetSelection()
+						if row <= 1 {
+							table.Select(limit, 0)
+							return nil
+						}
 					}
-				}
-				if event.Key() == tcell.KeyDown || event.Rune() == 'j' {
-					row, _ := table.GetSelection()
-					if row >= limit {
-						table.Select(1, 0)
-						return nil
+					if event.Key() == tcell.KeyDown || event.Rune() == 'j' {
+						row, _ := table.GetSelection()
+						if row >= limit {
+							table.Select(1, 0)
+							return nil
+						}
 					}
 				}
 			}
